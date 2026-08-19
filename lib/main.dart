@@ -26,7 +26,6 @@ class InsteadApp extends StatelessWidget {
 }
 
 enum CardKind { learn, think, create, remember, decide }
-en
 enum InteractionType { write, reveal }
 
 extension CardKindLabel on CardKind {
@@ -52,7 +51,6 @@ class ImprovementCard {
 
   factory ImprovementCard.fromJson(Map<String, dynamic> json) {
     final kindName = json['kind'] as String? ?? 'think';
-    final interactionName = json['interaction'] as String? ?? 'write';
     return ImprovementCard(
       kind: CardKind.values.firstWhere(
         (k) => k.name == kindName,
@@ -60,7 +58,7 @@ class ImprovementCard {
       ),
       prompt: json['prompt'] as String? ?? 'What is worth thinking about right now?',
       seconds: (json['seconds'] as num?)?.toInt() ?? 30,
-      interaction: interactionName == 'reveal'
+      interaction: json['interaction'] == 'reveal'
           ? InteractionType.reveal
           : InteractionType.write,
       inputHint: json['inputHint'] as String? ?? 'Write your response...',
@@ -70,37 +68,11 @@ class ImprovementCard {
 }
 
 const fallbackCards = <ImprovementCard>[
-  ImprovementCard(
-    kind: CardKind.learn,
-    prompt: 'Which is larger: a billion seconds or 30 years?',
-    seconds: 20,
-    interaction: InteractionType.write,
-    inputHint: 'Your answer...',
-  ),
-  ImprovementCard(
-    kind: CardKind.think,
-    prompt: 'What would make today feel well spent by bedtime?',
-    seconds: 30,
-    interaction: InteractionType.write,
-  ),
-  ImprovementCard(
-    kind: CardKind.create,
-    prompt: 'Invent a better name for doom scrolling.',
-    seconds: 30,
-    interaction: InteractionType.write,
-  ),
-  ImprovementCard(
-    kind: CardKind.remember,
-    prompt: 'Without checking, name three things you did yesterday.',
-    seconds: 30,
-    interaction: InteractionType.write,
-  ),
-  ImprovementCard(
-    kind: CardKind.decide,
-    prompt: 'If you could only finish one thing today, what should it be?',
-    seconds: 30,
-    interaction: InteractionType.write,
-  ),
+  ImprovementCard(kind: CardKind.learn, prompt: 'Which is larger: a billion seconds or 30 years?', seconds: 20, interaction: InteractionType.write, inputHint: 'Your answer...'),
+  ImprovementCard(kind: CardKind.think, prompt: 'What would make today feel well spent by bedtime?', seconds: 30, interaction: InteractionType.write),
+  ImprovementCard(kind: CardKind.create, prompt: 'Invent a better name for doom scrolling.', seconds: 30, interaction: InteractionType.write),
+  ImprovementCard(kind: CardKind.remember, prompt: 'Without checking, name three things you did yesterday.', seconds: 30, interaction: InteractionType.write),
+  ImprovementCard(kind: CardKind.decide, prompt: 'If you could only finish one thing today, what should it be?', seconds: 30, interaction: InteractionType.write),
 ];
 
 class FeedScreen extends StatefulWidget {
@@ -111,11 +83,9 @@ class FeedScreen extends StatefulWidget {
 }
 
 class _FeedScreenState extends State<FeedScreen> {
-  static const remoteUrl =
-      'https://raw.githubusercontent.com/mtbkwd/instead-app/main/config/cards.json';
-
-  final Random random = Random();
-  final TextEditingController answerController = TextEditingController();
+  static const remoteUrl = 'https://raw.githubusercontent.com/mtbkwd/instead-app/main/config/cards.json';
+  final random = Random();
+  final answerController = TextEditingController();
 
   List<ImprovementCard> cards = fallbackCards;
   ImprovementCard? card;
@@ -123,9 +93,6 @@ class _FeedScreenState extends State<FeedScreen> {
   int completed = 0;
   int skipped = 0;
   int contentVersion = 0;
-
-  final Map<CardKind, int> done = {for (final k in CardKind.values) k: 0};
-  final Map<CardKind, int> skip = {for (final k in CardKind.values) k: 0};
 
   @override
   void initState() {
@@ -143,30 +110,18 @@ class _FeedScreenState extends State<FeedScreen> {
     final prefs = await SharedPreferences.getInstance();
     completed = prefs.getInt('completed_total') ?? 0;
     skipped = prefs.getInt('skipped_total') ?? 0;
-
-    for (final kind in CardKind.values) {
-      done[kind] = prefs.getInt('done_${kind.name}') ?? 0;
-      skip[kind] = prefs.getInt('skip_${kind.name}') ?? 0;
-    }
-
     final cached = prefs.getString('remote_cards_json');
-    if (cached != null) {
-      applyDocument(cached);
-    }
-
+    if (cached != null) applyDocument(cached);
     if (!mounted) return;
-    setState(() {
-      card = pickCard();
-    });
-
-    await refreshRemote();
+    setState(() => card = pickCard());
+    refreshRemote();
   }
 
   void applyDocument(String source) {
     try {
       final root = jsonDecode(source) as Map<String, dynamic>;
-      final rawCards = root['cards'] as List<dynamic>? ?? const [];
-      final parsed = rawCards
+      final raw = root['cards'] as List<dynamic>? ?? const [];
+      final parsed = raw
           .whereType<Map<String, dynamic>>()
           .map(ImprovementCard.fromJson)
           .where((c) => c.prompt.trim().isNotEmpty)
@@ -181,9 +136,7 @@ class _FeedScreenState extends State<FeedScreen> {
   Future<void> refreshRemote() async {
     try {
       final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
-      final request = await client.getUrl(
-        Uri.parse('$remoteUrl?v=${DateTime.now().millisecondsSinceEpoch}'),
-      );
+      final request = await client.getUrl(Uri.parse('$remoteUrl?v=${DateTime.now().millisecondsSinceEpoch}'));
       request.headers.set(HttpHeaders.cacheControlHeader, 'no-cache');
       final response = await request.close().timeout(const Duration(seconds: 10));
       if (response.statusCode != HttpStatus.ok) {
@@ -195,17 +148,13 @@ class _FeedScreenState extends State<FeedScreen> {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('remote_cards_json', source);
       applyDocument(source);
-      if (!mounted) return;
-      setState(() {});
+      if (mounted) setState(() {});
     } catch (_) {}
   }
 
   ImprovementCard pickCard() {
     if (cards.isEmpty) return fallbackCards.first;
-    final kinds = cards.map((c) => c.kind).toSet().toList();
-    final kind = kinds[random.nextInt(kinds.length)];
-    final choices = cards.where((c) => c.kind == kind).toList();
-    return choices[random.nextInt(choices.length)];
+    return cards[random.nextInt(cards.length)];
   }
 
   Future<void> saveResponse(ImprovementCard current, String answer) async {
@@ -217,9 +166,7 @@ class _FeedScreenState extends State<FeedScreen> {
       'prompt': current.prompt,
       'answer': answer,
     }));
-    if (history.length > 100) {
-      history.removeRange(0, history.length - 100);
-    }
+    if (history.length > 100) history.removeRange(0, history.length - 100);
     await prefs.setStringList('response_history', history);
   }
 
@@ -233,23 +180,14 @@ class _FeedScreenState extends State<FeedScreen> {
   }
 
   Future<void> advance(bool wasCompleted) async {
-    final current = card;
-    if (current == null) return;
     final prefs = await SharedPreferences.getInstance();
-
     if (wasCompleted) {
       completed++;
-      done[current.kind] = (done[current.kind] ?? 0) + 1;
     } else {
       skipped++;
-      skip[current.kind] = (skip[current.kind] ?? 0) + 1;
     }
-
     await prefs.setInt('completed_total', completed);
     await prefs.setInt('skipped_total', skipped);
-    await prefs.setInt('done_${current.kind.name}', done[current.kind] ?? 0);
-    await prefs.setInt('skip_${current.kind.name}', skip[current.kind] ?? 0);
-
     if (!mounted) return;
     FocusScope.of(context).unfocus();
     answerController.clear();
@@ -265,7 +203,6 @@ class _FeedScreenState extends State<FeedScreen> {
     if (current == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
-
     final isWriting = current.interaction == InteractionType.write;
 
     return Scaffold(
@@ -277,18 +214,9 @@ class _FeedScreenState extends State<FeedScreen> {
               padding: const EdgeInsets.fromLTRB(24, 18, 24, 12),
               child: Row(
                 children: [
-                  const Text(
-                    'instead',
-                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
-                  ),
+                  const Text('instead', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
                   const Spacer(),
-                  Text(
-                    '$completed useful',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.primary,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
+                  Text('$completed useful', style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.w700)),
                 ],
               ),
             ),
@@ -307,38 +235,19 @@ class _FeedScreenState extends State<FeedScreen> {
                       children: [
                         Row(
                           children: [
-                            Text(
-                              current.kind.label,
-                              style: TextStyle(
-                                color: Theme.of(context).colorScheme.primary,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
+                            Text(current.kind.label, style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.w800)),
                             const Spacer(),
-                            Text(
-                              'about ${current.seconds} sec',
-                              style: TextStyle(color: Colors.black.withValues(alpha: .5)),
-                            ),
+                            Text('about ${current.seconds} sec', style: TextStyle(color: Colors.black.withValues(alpha: .5))),
                           ],
                         ),
                         const SizedBox(height: 34),
-                        Text(
-                          current.prompt,
-                          style: const TextStyle(
-                            fontSize: 34,
-                            height: 1.08,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: -1,
-                          ),
-                        ),
+                        Text(current.prompt, style: const TextStyle(fontSize: 34, height: 1.08, fontWeight: FontWeight.w700, letterSpacing: -1)),
                         if (isWriting) ...[
                           const SizedBox(height: 26),
-                          TextFormField(
+                          TextField(
                             controller: answerController,
-                            autofocus: false,
                             keyboardType: TextInputType.multiline,
                             textInputAction: TextInputAction.newline,
-                            textCapitalization: TextCapitalization.sentences,
                             minLines: 3,
                             maxLines: 8,
                             decoration: InputDecoration(
@@ -346,59 +255,27 @@ class _FeedScreenState extends State<FeedScreen> {
                               filled: true,
                               fillColor: const Color(0xFFF7F6F2),
                               contentPadding: const EdgeInsets.all(18),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(18),
-                              ),
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(18)),
                             ),
                           ),
                         ],
                         if (current.reveal != null) ...[
                           const SizedBox(height: 24),
                           if (revealed)
-                            Text(
-                              current.reveal!,
-                              style: const TextStyle(fontSize: 18, height: 1.4),
-                            )
+                            Text(current.reveal!, style: const TextStyle(fontSize: 18, height: 1.4))
                           else
-                            FilledButton.tonal(
-                              onPressed: () => setState(() => revealed = true),
-                              child: const Text('Reveal'),
-                            ),
+                            FilledButton.tonal(onPressed: () => setState(() => revealed = true), child: const Text('Reveal')),
                         ],
                         const SizedBox(height: 32),
                         Row(
                           children: [
-                            Expanded(
-                              child: OutlinedButton(
-                                onPressed: () => advance(false),
-                                style: OutlinedButton.styleFrom(
-                                  minimumSize: const Size.fromHeight(54),
-                                ),
-                                child: const Text('Skip'),
-                              ),
-                            ),
+                            Expanded(child: OutlinedButton(onPressed: () => advance(false), style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(54)), child: const Text('Skip'))),
                             const SizedBox(width: 12),
-                            Expanded(
-                              child: FilledButton(
-                                onPressed: isWriting ? submit : () => advance(true),
-                                style: FilledButton.styleFrom(
-                                  minimumSize: const Size.fromHeight(54),
-                                ),
-                                child: Text(isWriting ? 'Submit' : 'Done'),
-                              ),
-                            ),
+                            Expanded(child: FilledButton(onPressed: isWriting ? submit : () => advance(true), style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(54)), child: Text(isWriting ? 'Submit' : 'Done'))),
                           ],
                         ),
                         const SizedBox(height: 8),
-                        Center(
-                          child: Text(
-                            'content $contentVersion',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Colors.black.withValues(alpha: .35),
-                            ),
-                          ),
-                        ),
+                        Center(child: Text('content $contentVersion', style: TextStyle(fontSize: 11, color: Colors.black.withValues(alpha: .35)))),
                       ],
                     ),
                   ),
