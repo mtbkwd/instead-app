@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "cards": [
+    {"kind":"learn","prompt":"What does ‘zeitgeist’ literally mean?","seconds":20,"interaction":"reveal","reveal":"Spirit of the time, or spirit of the age."},
+    {"kind":"learn","prompt":"Which is larger: a billion seconds or 30 years?","seconds":20,"interaction":"reveal","reveal":"A billion seconds is about 31.7 years."},
+    {"kind":"learn","prompt":"Why does the Moon always show us roughly the same face?","seconds":30,"interaction":"reveal","reveal":"Its rotation period matches its orbit around Earth. This is called tidal locking."},
+    {"kind":"learn","prompt":"What is the difference between weather and climate?","seconds":25,"interaction":"reveal","reveal":"Weather is short-term atmospheric conditions. Climate is the long-term pattern."},
+    {"kind":"learn","prompt":"What does compound interest mean?","seconds":25,"interaction":"reveal","reveal":"You earn returns on both the original amount and previously accumulated returns."},
+    {"kind":"think","prompt":"What belief have you changed your mind about in the last five years?","seconds":45,"interaction":"write","inputHint":"What changed?"},
+    {"kind":"think","prompt":"What would make today feel well spent by bedtime?","seconds":30,"interaction":"write","inputHint":"One thing is enough..."},
+    {"kind":"think","prompt":"What are you treating as urgent that probably is not important?","seconds":35,"interaction":"write"},
+    {"kind":"think","prompt":"What opinion do you hold mostly because people around you hold it?","seconds":45,"interaction":"write"},
+    {"kind":"create","prompt":"Write a six-word title for the current chapter of your life.","seconds":45,"interaction":"write","inputHint":"Six words..."},
+    {"kind":"create","prompt":"Invent a better name for doom scrolling.","seconds":30,"interaction":"write","inputHint":"Your name for it..."},
+    {"kind":"create","prompt":"Describe a new app idea in one sentence.","seconds":45,"interaction":"write","inputHint":"Your app idea..."},
+    {"kind":"create","prompt":"Write the opening line of a story you would actually want to keep reading.","seconds":60,"interaction":"write","inputHint":"Opening line..."},
+    {"kind":"remember","prompt":"Without checking, name three things you did yesterday.","seconds":30,"interaction":"write","inputHint":"Three things..."},
+    {"kind":"remember","prompt":"Put apple, lighthouse, velvet and train into one absurd mental image. Describe it.","seconds":30,"interaction":"write"},
+    {"kind":"remember","prompt":"Think of the last three people you messaged. What did each conversation concern?","seconds":35,"interaction":"write"},
+    {"kind":"remember","prompt":"Look away from the screen. What were the last five words you read?","seconds":20,"interaction":"write","inputHint":"Five words..."},
+    {"kind":"decide","prompt":"What is one task you keep avoiding that would take less than ten minutes?","seconds":30,"interaction":"write"},
+    {"kind":"decide","prompt":"Choose one thing you want to know more about by this time next week.","seconds":30,"interaction":"write"},
+    {"kind":"decide","prompt":"What is one notification on your phone that deserves to be turned off?","seconds":25,"interaction":"write"},
+    {"kind":"decide","prompt":"If you could only finish one thing today, what should it be?","seconds":30,"interaction":"write"}
+  ]
+}
