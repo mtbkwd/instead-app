@@ -46,7 +46,7 @@ class ImprovementCard {
 
 const fallbackCards=<ImprovementCard>[
   ImprovementCard(kind:CardKind.learn,topic:'numbers',difficulty:1,prompt:'Gut check: is a billion seconds longer or shorter than 30 years?',seconds:15,interaction:InteractionType.reveal,reveal:'Longer. A billion seconds is about 31.7 years.'),
-  ImprovementCard(kind:CardKind.create,topic:'creativity',difficulty:1,prompt:'Turn a boring household object into a product someone would happily pay $100 for.',seconds:40,interaction:InteractionType.write),
+  ImprovementCard(kind:CardKind.create,topic:'creativity',difficulty:1,prompt:'Turn a boring household object into a product someone would happily pay \$100 for.',seconds:40,interaction:InteractionType.write),
   ImprovementCard(kind:CardKind.think,topic:'critical_thinking',difficulty:1,prompt:'A claim says something doubles your risk. What number do you need before deciding whether that matters?',seconds:25,interaction:InteractionType.write),
 ];
 
