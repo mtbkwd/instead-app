@@ -24,11 +24,15 @@ class InsteadApp extends StatelessWidget {
             fillColor: const Color(0xFFF7F6F2),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(18),
-              borderSide: BorderSide.none,
+              borderSide: const BorderSide(color: Color(0xFF284A43), width: 1.3),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(18),
+              borderSide: const BorderSide(color: Color(0xFF284A43), width: 1.3),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(18),
-              borderSide: const BorderSide(color: Color(0xFF1E3A34), width: 1.5),
+              borderSide: const BorderSide(color: Color(0xFF0A7B67), width: 2),
             ),
           ),
         ),
@@ -37,6 +41,7 @@ class InsteadApp extends StatelessWidget {
 }
 
 enum CardKind { learn, think, create, remember, decide }
+
 enum InteractionType { reveal, write }
 
 extension CardKindName on CardKind {
@@ -88,8 +93,8 @@ const fallbackCards = <ImprovementCard>[
     kind: CardKind.learn,
     prompt: 'Which is larger: a billion seconds or 30 years?',
     seconds: 20,
-    interaction: InteractionType.reveal,
-    reveal: 'A billion seconds is about 31.7 years.',
+    interaction: InteractionType.write,
+    inputHint: 'Your answer...',
   ),
   ImprovementCard(
     kind: CardKind.think,
@@ -128,7 +133,8 @@ class FeedScreen extends StatefulWidget {
 }
 
 class _FeedScreenState extends State<FeedScreen> with WidgetsBindingObserver {
-  static const _remoteBase = 'https://raw.githubusercontent.com/mtbkwd/instead-app/main/config/cards.json';
+  static const _remoteBase =
+      'https://raw.githubusercontent.com/mtbkwd/instead-app/main/config/cards.json';
 
   final _random = Random();
   final _answerController = TextEditingController();
@@ -165,7 +171,7 @@ class _FeedScreenState extends State<FeedScreen> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
+    if (state == AppLifecycleState.resumed && !_focusNode.hasFocus) {
       _refreshRemoteCards();
     }
   }
@@ -212,7 +218,7 @@ class _FeedScreenState extends State<FeedScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _refreshRemoteCards() async {
-    if (_refreshing) return;
+    if (_refreshing || _focusNode.hasFocus) return;
     _refreshing = true;
     try {
       final client = HttpClient();
@@ -233,18 +239,17 @@ class _FeedScreenState extends State<FeedScreen> with WidgetsBindingObserver {
       final p = await SharedPreferences.getInstance();
       await p.setString('remote_cards_json', source);
 
-      if (!mounted) return;
+      if (!mounted || _focusNode.hasFocus) return;
       final currentPrompt = _card?.prompt;
       setState(() {
         _cards = parsed.cards;
         _contentVersion = parsed.version;
         if (currentPrompt == null || !_cards.any((c) => c.prompt == currentPrompt)) {
           _card = _pick();
-          _resetInteraction();
         }
       });
     } catch (_) {
-      // Offline or remote unavailable. Keep the last good cached library.
+      // Keep cached content when offline.
     } finally {
       _refreshing = false;
     }
@@ -260,7 +265,6 @@ class _FeedScreenState extends State<FeedScreen> with WidgetsBindingObserver {
         weighted.add(k);
       }
     }
-
     final kind = weighted[_random.nextInt(weighted.length)];
     final choices = _cards.where((c) => c.kind == kind).toList();
     ImprovementCard next = choices[_random.nextInt(choices.length)];
@@ -328,8 +332,8 @@ class _FeedScreenState extends State<FeedScreen> with WidgetsBindingObserver {
     await p.setInt('skip_${c.kind.name}', _skip[c.kind] ?? 0);
 
     if (!mounted) return;
+    _resetInteraction();
     setState(() {
-      _resetInteraction();
       _card = _pick();
     });
   }
@@ -375,140 +379,167 @@ class _FeedScreenState extends State<FeedScreen> with WidgetsBindingObserver {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    final width = MediaQuery.sizeOf(context).width;
+    final media = MediaQuery.of(context);
+    final keyboardHeight = media.viewInsets.bottom;
+    final keyboardOpen = keyboardHeight > 0;
+    final width = media.size.width;
     final isWriting = c.interaction == InteractionType.write;
 
     return Scaffold(
-      resizeToAvoidBottomInset: true,
+      resizeToAvoidBottomInset: false,
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 14),
+        child: AnimatedPadding(
+          duration: const Duration(milliseconds: 120),
+          curve: Curves.easeOut,
+          padding: EdgeInsets.fromLTRB(20, 18, 20, keyboardOpen ? keyboardHeight + 8 : 14),
           child: Column(
             children: [
-              Row(
-                children: [
-                  const Text('instead', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
-                  const Spacer(),
-                  TextButton(onPressed: _session, child: Text('$_completed useful')),
-                ],
-              ),
-              const SizedBox(height: 12),
+              if (!keyboardOpen)
+                Row(
+                  children: [
+                    const Text('instead', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
+                    const Spacer(),
+                    TextButton(onPressed: _session, child: Text('$_completed useful')),
+                  ],
+                ),
+              if (!keyboardOpen) const SizedBox(height: 12),
               Expanded(
-                child: Center(
-                  child: GestureDetector(
-                    onPanUpdate: isWriting && _focusNode.hasFocus ? null : (d) => setState(() => _drag += d.delta),
-                    onPanEnd: isWriting && _focusNode.hasFocus
-                        ? null
-                        : (d) {
-                            if (_drag.dy < -90 && !isWriting) {
-                              _record(true);
-                            } else if (_drag.dx < -90) {
-                              _record(false);
-                            } else {
-                              setState(() => _drag = Offset.zero);
-                            }
-                          },
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 140),
-                      transform: Matrix4.identity()
-                        ..translate(_drag.dx * .35, _drag.dy * .35)
-                        ..rotateZ(_drag.dx / max(width, 1) * .035),
-                      transformAlignment: Alignment.center,
-                      child: Container(
-                        width: min(width - 40, 520),
-                        constraints: const BoxConstraints(minHeight: 510),
-                        padding: const EdgeInsets.all(28),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(34),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: .08),
-                              blurRadius: 30,
-                              offset: const Offset(0, 12),
-                            ),
-                          ],
+                child: GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onPanUpdate: isWriting && _focusNode.hasFocus
+                      ? null
+                      : (d) => setState(() => _drag += d.delta),
+                  onPanEnd: isWriting && _focusNode.hasFocus
+                      ? null
+                      : (d) {
+                          if (_drag.dy < -90 && !isWriting) {
+                            _record(true);
+                          } else if (_drag.dx < -90) {
+                            _record(false);
+                          } else {
+                            setState(() => _drag = Offset.zero);
+                          }
+                        },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 140),
+                    transform: Matrix4.identity()
+                      ..translate(_drag.dx * .35, _drag.dy * .35)
+                      ..rotateZ(_drag.dx / max(width, 1) * .035),
+                    transformAlignment: Alignment.center,
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(keyboardOpen ? 24 : 34),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: .08),
+                          blurRadius: 30,
+                          offset: const Offset(0, 12),
                         ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              c.kind.label,
-                              style: TextStyle(
-                                fontWeight: FontWeight.w700,
-                                color: Theme.of(context).colorScheme.primary,
+                      ],
+                    ),
+                    child: Padding(
+                      padding: EdgeInsets.all(keyboardOpen ? 18 : 28),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Text(
+                                c.kind.label,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  color: Theme.of(context).colorScheme.primary,
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'about ${c.seconds} sec',
-                              style: TextStyle(color: Colors.black.withValues(alpha: .52)),
-                            ),
-                            const Spacer(),
-                            Text(
-                              c.prompt,
-                              style: TextStyle(
-                                fontSize: isWriting ? 30 : 36,
-                                height: 1.06,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: -1.1,
-                              ),
-                            ),
-                            if (isWriting) ...[
-                              const SizedBox(height: 24),
-                              TextField(
-                                controller: _answerController,
-                                focusNode: _focusNode,
-                                minLines: 2,
-                                maxLines: 5,
-                                textCapitalization: TextCapitalization.sentences,
-                                textInputAction: TextInputAction.done,
-                                onSubmitted: (_) => _submitResponse(),
-                                decoration: InputDecoration(hintText: c.inputHint),
+                              const Spacer(),
+                              Text(
+                                'about ${c.seconds} sec',
+                                style: TextStyle(color: Colors.black.withValues(alpha: .52)),
                               ),
                             ],
-                            if (c.reveal != null) ...[
-                              const SizedBox(height: 24),
-                              if (_revealed)
-                                Text(c.reveal!, style: const TextStyle(fontSize: 18, height: 1.45))
-                              else
-                                FilledButton.tonal(
-                                  onPressed: () => setState(() => _revealed = true),
-                                  child: const Text('Reveal'),
-                                ),
-                            ],
-                            const Spacer(),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: OutlinedButton(
-                                    onPressed: () => _record(false),
-                                    style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(52)),
-                                    child: const Text('Skip'),
+                          ),
+                          SizedBox(height: keyboardOpen ? 10 : 22),
+                          Expanded(
+                            child: SingleChildScrollView(
+                              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.manual,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    c.prompt,
+                                    style: TextStyle(
+                                      fontSize: keyboardOpen ? 24 : (isWriting ? 30 : 36),
+                                      height: 1.06,
+                                      fontWeight: FontWeight.w700,
+                                      letterSpacing: -1.1,
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: FilledButton(
-                                    onPressed: isWriting ? _submitResponse : () => _record(true),
-                                    style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
-                                    child: Text(isWriting ? 'Submit' : 'Done'),
-                                  ),
-                                ),
-                              ],
+                                  if (isWriting) ...[
+                                    SizedBox(height: keyboardOpen ? 14 : 24),
+                                    TextField(
+                                      key: ValueKey(c.prompt),
+                                      controller: _answerController,
+                                      focusNode: _focusNode,
+                                      minLines: keyboardOpen ? 2 : 3,
+                                      maxLines: keyboardOpen ? 3 : 6,
+                                      textCapitalization: TextCapitalization.sentences,
+                                      textInputAction: TextInputAction.done,
+                                      onSubmitted: (_) => _submitResponse(),
+                                      decoration: InputDecoration(hintText: c.inputHint),
+                                    ),
+                                  ],
+                                  if (c.reveal != null) ...[
+                                    const SizedBox(height: 24),
+                                    if (_revealed)
+                                      Text(c.reveal!, style: const TextStyle(fontSize: 18, height: 1.45))
+                                    else
+                                      FilledButton.tonal(
+                                        onPressed: () => setState(() => _revealed = true),
+                                        child: const Text('Reveal'),
+                                      ),
+                                  ],
+                                ],
+                              ),
                             ),
-                          ],
-                        ),
+                          ),
+                          SizedBox(height: keyboardOpen ? 10 : 18),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton(
+                                  onPressed: () => _record(false),
+                                  style: OutlinedButton.styleFrom(
+                                    minimumSize: Size.fromHeight(keyboardOpen ? 44 : 52),
+                                  ),
+                                  child: const Text('Skip'),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: FilledButton(
+                                  onPressed: isWriting ? _submitResponse : () => _record(true),
+                                  style: FilledButton.styleFrom(
+                                    minimumSize: Size.fromHeight(keyboardOpen ? 44 : 52),
+                                  ),
+                                  child: Text(isWriting ? 'Submit' : 'Done'),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
                     ),
                   ),
                 ),
               ),
-              const SizedBox(height: 10),
-              Text(
-                isWriting ? 'Answer or skip  •  Swipe left: skip' : 'Swipe up: done  •  Swipe left: skip',
-                style: TextStyle(color: Colors.black.withValues(alpha: .52), fontSize: 13),
-              ),
+              if (!keyboardOpen) ...[
+                const SizedBox(height: 10),
+                Text(
+                  isWriting ? 'Answer or skip  •  Swipe left: skip' : 'Swipe up: done  •  Swipe left: skip',
+                  style: TextStyle(color: Colors.black.withValues(alpha: .52), fontSize: 13),
+                ),
+              ],
             ],
           ),
         ),
