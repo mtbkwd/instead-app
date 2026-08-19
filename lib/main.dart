@@ -1,5 +1,7 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -35,7 +37,6 @@ class InsteadApp extends StatelessWidget {
 }
 
 enum CardKind { learn, think, create, remember, decide }
-
 enum InteractionType { reveal, write }
 
 extension CardKindName on CardKind {
@@ -64,30 +65,59 @@ class ImprovementCard {
     this.reveal,
     this.inputHint = 'Write your response...',
   });
+
+  factory ImprovementCard.fromJson(Map<String, dynamic> json) {
+    final kindName = json['kind'] as String? ?? 'think';
+    final interactionName = json['interaction'] as String? ?? 'write';
+    return ImprovementCard(
+      kind: CardKind.values.firstWhere(
+        (k) => k.name == kindName,
+        orElse: () => CardKind.think,
+      ),
+      prompt: json['prompt'] as String? ?? 'What is worth thinking about right now?',
+      seconds: (json['seconds'] as num?)?.toInt() ?? 30,
+      interaction: interactionName == 'reveal' ? InteractionType.reveal : InteractionType.write,
+      reveal: json['reveal'] as String?,
+      inputHint: json['inputHint'] as String? ?? 'Write your response...',
+    );
+  }
 }
 
-const seedCards = <ImprovementCard>[
-  ImprovementCard(kind: CardKind.learn, prompt: 'What does “zeitgeist” literally mean?', seconds: 20, interaction: InteractionType.reveal, reveal: '“Spirit of the time” or “spirit of the age”.'),
-  ImprovementCard(kind: CardKind.learn, prompt: 'Which is larger: a billion seconds or 30 years?', seconds: 20, interaction: InteractionType.reveal, reveal: 'A billion seconds is about 31.7 years.'),
-  ImprovementCard(kind: CardKind.learn, prompt: 'Why does the Moon always show us roughly the same face?', seconds: 30, interaction: InteractionType.reveal, reveal: 'Its rotation period matches its orbit around Earth. This is called tidal locking.'),
-  ImprovementCard(kind: CardKind.learn, prompt: 'What is the difference between weather and climate?', seconds: 25, interaction: InteractionType.reveal, reveal: 'Weather is short-term atmospheric conditions. Climate is the long-term pattern.'),
-  ImprovementCard(kind: CardKind.learn, prompt: 'What does “compound interest” mean?', seconds: 25, interaction: InteractionType.reveal, reveal: 'You earn returns on both the original amount and previously accumulated returns.'),
-  ImprovementCard(kind: CardKind.think, prompt: 'What belief have you changed your mind about in the last five years?', seconds: 45, interaction: InteractionType.write),
-  ImprovementCard(kind: CardKind.think, prompt: 'What would make today feel well spent by bedtime?', seconds: 30, interaction: InteractionType.write),
-  ImprovementCard(kind: CardKind.think, prompt: 'What are you treating as urgent that probably is not important?', seconds: 35, interaction: InteractionType.write),
-  ImprovementCard(kind: CardKind.think, prompt: 'Which opinion do you hold mostly because people around you hold it?', seconds: 45, interaction: InteractionType.write),
-  ImprovementCard(kind: CardKind.create, prompt: 'Write a six-word title for the current chapter of your life.', seconds: 45, interaction: InteractionType.write, inputHint: 'Six words...'),
-  ImprovementCard(kind: CardKind.create, prompt: 'Invent a better name for “doom scrolling”.', seconds: 30, interaction: InteractionType.write, inputHint: 'Your name for it...'),
-  ImprovementCard(kind: CardKind.create, prompt: 'Describe a new app idea in one sentence.', seconds: 45, interaction: InteractionType.write, inputHint: 'Your app idea...'),
-  ImprovementCard(kind: CardKind.create, prompt: 'Write the opening line of a story you would actually want to keep reading.', seconds: 60, interaction: InteractionType.write, inputHint: 'Opening line...'),
-  ImprovementCard(kind: CardKind.remember, prompt: 'Without checking, name three things you did yesterday.', seconds: 30, interaction: InteractionType.write, inputHint: 'Three things...'),
-  ImprovementCard(kind: CardKind.remember, prompt: 'Put apple, lighthouse, velvet and train into one absurd mental image. Describe it.', seconds: 30, interaction: InteractionType.write),
-  ImprovementCard(kind: CardKind.remember, prompt: 'Think of the last three people you messaged. What did each conversation concern?', seconds: 35, interaction: InteractionType.write),
-  ImprovementCard(kind: CardKind.remember, prompt: 'Look away from the screen. What were the last five words you read?', seconds: 20, interaction: InteractionType.write, inputHint: 'Five words...'),
-  ImprovementCard(kind: CardKind.decide, prompt: 'What is one task you keep avoiding that would take less than ten minutes?', seconds: 30, interaction: InteractionType.write),
-  ImprovementCard(kind: CardKind.decide, prompt: 'Choose one thing you want to know more about by this time next week.', seconds: 30, interaction: InteractionType.write),
-  ImprovementCard(kind: CardKind.decide, prompt: 'What is one notification on your phone that deserves to be turned off?', seconds: 25, interaction: InteractionType.write),
-  ImprovementCard(kind: CardKind.decide, prompt: 'If you could only finish one thing today, what should it be?', seconds: 30, interaction: InteractionType.write),
+const fallbackCards = <ImprovementCard>[
+  ImprovementCard(
+    kind: CardKind.learn,
+    prompt: 'Which is larger: a billion seconds or 30 years?',
+    seconds: 20,
+    interaction: InteractionType.reveal,
+    reveal: 'A billion seconds is about 31.7 years.',
+  ),
+  ImprovementCard(
+    kind: CardKind.think,
+    prompt: 'What would make today feel well spent by bedtime?',
+    seconds: 30,
+    interaction: InteractionType.write,
+    inputHint: 'One thing is enough...',
+  ),
+  ImprovementCard(
+    kind: CardKind.create,
+    prompt: 'Invent a better name for doom scrolling.',
+    seconds: 30,
+    interaction: InteractionType.write,
+    inputHint: 'Your name for it...',
+  ),
+  ImprovementCard(
+    kind: CardKind.remember,
+    prompt: 'Without checking, name three things you did yesterday.',
+    seconds: 30,
+    interaction: InteractionType.write,
+    inputHint: 'Three things...',
+  ),
+  ImprovementCard(
+    kind: CardKind.decide,
+    prompt: 'If you could only finish one thing today, what should it be?',
+    seconds: 30,
+    interaction: InteractionType.write,
+  ),
 ];
 
 class FeedScreen extends StatefulWidget {
@@ -97,32 +127,47 @@ class FeedScreen extends StatefulWidget {
   State<FeedScreen> createState() => _FeedScreenState();
 }
 
-class _FeedScreenState extends State<FeedScreen> {
+class _FeedScreenState extends State<FeedScreen> with WidgetsBindingObserver {
+  static const _remoteBase = 'https://raw.githubusercontent.com/mtbkwd/instead-app/main/config/cards.json';
+
   final _random = Random();
   final _answerController = TextEditingController();
   final _focusNode = FocusNode();
 
+  List<ImprovementCard> _cards = fallbackCards;
   ImprovementCard? _card;
   bool _revealed = false;
+  bool _refreshing = false;
   Offset _drag = Offset.zero;
   int _completed = 0;
   int _skipped = 0;
   int _sessionCompleted = 0;
   int _sessionSkipped = 0;
+  int _contentVersion = 0;
+
   final Map<CardKind, int> _done = {for (final k in CardKind.values) k: 0};
   final Map<CardKind, int> _skip = {for (final k in CardKind.values) k: 0};
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _load();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _answerController.dispose();
     _focusNode.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _refreshRemoteCards();
+    }
   }
 
   Future<void> _load() async {
@@ -131,31 +176,109 @@ class _FeedScreenState extends State<FeedScreen> {
       _done[k] = p.getInt('done_${k.name}') ?? 0;
       _skip[k] = p.getInt('skip_${k.name}') ?? 0;
     }
+
+    final cached = p.getString('remote_cards_json');
+    if (cached != null) {
+      final parsed = _parseCardDocument(cached);
+      if (parsed.cards.isNotEmpty) {
+        _cards = parsed.cards;
+        _contentVersion = parsed.version;
+      }
+    }
+
     if (!mounted) return;
     setState(() {
       _completed = p.getInt('completed_total') ?? 0;
       _skipped = p.getInt('skipped_total') ?? 0;
       _card = _pick();
     });
+
+    await _refreshRemoteCards();
+  }
+
+  ({List<ImprovementCard> cards, int version}) _parseCardDocument(String source) {
+    try {
+      final root = jsonDecode(source) as Map<String, dynamic>;
+      final rawCards = root['cards'] as List<dynamic>? ?? const [];
+      final cards = rawCards
+          .whereType<Map<String, dynamic>>()
+          .map(ImprovementCard.fromJson)
+          .where((card) => card.prompt.trim().isNotEmpty)
+          .toList();
+      return (cards: cards, version: (root['version'] as num?)?.toInt() ?? 0);
+    } catch (_) {
+      return (cards: <ImprovementCard>[], version: 0);
+    }
+  }
+
+  Future<void> _refreshRemoteCards() async {
+    if (_refreshing) return;
+    _refreshing = true;
+    try {
+      final client = HttpClient();
+      client.connectionTimeout = const Duration(seconds: 8);
+      final uri = Uri.parse('$_remoteBase?v=${DateTime.now().millisecondsSinceEpoch}');
+      final request = await client.getUrl(uri);
+      request.headers.set(HttpHeaders.cacheControlHeader, 'no-cache');
+      final response = await request.close().timeout(const Duration(seconds: 10));
+      if (response.statusCode != HttpStatus.ok) {
+        client.close(force: true);
+        return;
+      }
+      final source = await utf8.decoder.bind(response).join();
+      client.close(force: true);
+      final parsed = _parseCardDocument(source);
+      if (parsed.cards.isEmpty) return;
+
+      final p = await SharedPreferences.getInstance();
+      await p.setString('remote_cards_json', source);
+
+      if (!mounted) return;
+      final currentPrompt = _card?.prompt;
+      setState(() {
+        _cards = parsed.cards;
+        _contentVersion = parsed.version;
+        if (currentPrompt == null || !_cards.any((c) => c.prompt == currentPrompt)) {
+          _card = _pick();
+          _resetInteraction();
+        }
+      });
+    } catch (_) {
+      // Offline or remote unavailable. Keep the last good cached library.
+    } finally {
+      _refreshing = false;
+    }
   }
 
   ImprovementCard _pick() {
+    if (_cards.isEmpty) return fallbackCards.first;
+    final availableKinds = _cards.map((c) => c.kind).toSet();
     final weighted = <CardKind>[];
-    for (final k in CardKind.values) {
+    for (final k in availableKinds) {
       final score = (4 + (_done[k] ?? 0) - ((_skip[k] ?? 0) ~/ 2)).clamp(1, 12);
       for (var i = 0; i < score; i++) {
         weighted.add(k);
       }
     }
+
     final kind = weighted[_random.nextInt(weighted.length)];
-    final choices = seedCards.where((c) => c.kind == kind).toList();
+    final choices = _cards.where((c) => c.kind == kind).toList();
     ImprovementCard next = choices[_random.nextInt(choices.length)];
     if (_card != null && choices.length > 1) {
-      while (identical(next, _card)) {
+      var guard = 0;
+      while (next.prompt == _card!.prompt && guard < 10) {
         next = choices[_random.nextInt(choices.length)];
+        guard++;
       }
     }
     return next;
+  }
+
+  void _resetInteraction() {
+    _focusNode.unfocus();
+    _answerController.clear();
+    _revealed = false;
+    _drag = Offset.zero;
   }
 
   Future<void> _saveResponse(ImprovementCard card, String answer) async {
@@ -205,12 +328,9 @@ class _FeedScreenState extends State<FeedScreen> {
     await p.setInt('skip_${c.kind.name}', _skip[c.kind] ?? 0);
 
     if (!mounted) return;
-    _focusNode.unfocus();
-    _answerController.clear();
     setState(() {
+      _resetInteraction();
       _card = _pick();
-      _revealed = false;
-      _drag = Offset.zero;
     });
   }
 
@@ -231,9 +351,17 @@ class _FeedScreenState extends State<FeedScreen> {
             const SizedBox(height: 8),
             Text('$_sessionSkipped skipped', style: const TextStyle(fontSize: 18)),
             const SizedBox(height: 8),
-            Text(total == 0 ? 'Start with one card.' : '${((_sessionCompleted / total) * 100).round()}% of cards felt worth doing.', style: const TextStyle(fontSize: 18)),
+            Text(
+              total == 0
+                  ? 'Start with one card.'
+                  : '${((_sessionCompleted / total) * 100).round()}% of cards felt worth doing.',
+              style: const TextStyle(fontSize: 18),
+            ),
             const SizedBox(height: 22),
-            const Text('No streak. No guilt. Come back when you would otherwise scroll.'),
+            Text(
+              'Content version $_contentVersion. New cards load automatically when the app opens.',
+              style: TextStyle(color: Colors.black.withValues(alpha: .55)),
+            ),
           ],
         ),
       ),
@@ -294,15 +422,28 @@ class _FeedScreenState extends State<FeedScreen> {
                           color: Colors.white,
                           borderRadius: BorderRadius.circular(34),
                           boxShadow: [
-                            BoxShadow(color: Colors.black.withValues(alpha: .08), blurRadius: 30, offset: const Offset(0, 12)),
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: .08),
+                              blurRadius: 30,
+                              offset: const Offset(0, 12),
+                            ),
                           ],
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(c.kind.label, style: TextStyle(fontWeight: FontWeight.w700, color: Theme.of(context).colorScheme.primary)),
+                            Text(
+                              c.kind.label,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                            ),
                             const SizedBox(height: 8),
-                            Text('about ${c.seconds} sec', style: TextStyle(color: Colors.black.withValues(alpha: .52))),
+                            Text(
+                              'about ${c.seconds} sec',
+                              style: TextStyle(color: Colors.black.withValues(alpha: .52)),
+                            ),
                             const Spacer(),
                             Text(
                               c.prompt,
