@@ -27,6 +27,9 @@ jobs:
       - name: Generate Android project
         run: flutter create --platforms=android --org app.instead .
 
+      - name: Use responsive app shell
+        run: cp lib/main_v05.dart lib/main.dart
+
       - name: Remove generated sample test
         run: rm -f test/widget_test.dart
 
