@@ -82,10 +82,13 @@ class FeedScreen extends StatefulWidget {
   State<FeedScreen> createState() => _FeedScreenState();
 }
 
-class _FeedScreenState extends State<FeedScreen> {
+class _FeedScreenState extends State<FeedScreen> with WidgetsBindingObserver {
   static const remoteUrl = 'https://raw.githubusercontent.com/mtbkwd/instead-app/main/config/cards.json';
+
   final random = Random();
   final answerController = TextEditingController();
+  final answerFocus = FocusNode(debugLabel: 'answer');
+  final diagnostic = ValueNotifier<String>('diagnostic ready');
 
   List<ImprovementCard> cards = fallbackCards;
   ImprovementCard? card;
@@ -93,17 +96,45 @@ class _FeedScreenState extends State<FeedScreen> {
   int completed = 0;
   int skipped = 0;
   int contentVersion = 0;
+  int buildCount = 0;
+
+  void logEvent(String event) {
+    final now = DateTime.now();
+    final stamp = '${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}.${now.millisecond.toString().padLeft(3, '0')}';
+    final previous = diagnostic.value.split('\n').take(5).join('\n');
+    diagnostic.value = '$stamp  $event\n$previous';
+  }
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    answerFocus.addListener(() {
+      logEvent(answerFocus.hasFocus ? 'FOCUS gained' : 'FOCUS LOST');
+    });
+    logEvent('initState');
     load();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     answerController.dispose();
+    answerFocus.dispose();
+    diagnostic.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    logEvent('lifecycle ${state.name}');
+  }
+
+  @override
+  void didChangeMetrics() {
+    final view = WidgetsBinding.instance.platformDispatcher.views.first;
+    final bottom = view.viewInsets.bottom / view.devicePixelRatio;
+    logEvent('metrics keyboard=${bottom.round()}px');
   }
 
   Future<void> load() async {
@@ -114,6 +145,7 @@ class _FeedScreenState extends State<FeedScreen> {
     if (cached != null) applyDocument(cached);
     if (!mounted) return;
     setState(() => card = pickCard());
+    logEvent('initial card set');
     refreshRemote();
   }
 
@@ -134,6 +166,7 @@ class _FeedScreenState extends State<FeedScreen> {
   }
 
   Future<void> refreshRemote() async {
+    logEvent('remote refresh START');
     try {
       final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
       final request = await client.getUrl(Uri.parse('$remoteUrl?v=${DateTime.now().millisecondsSinceEpoch}'));
@@ -141,6 +174,7 @@ class _FeedScreenState extends State<FeedScreen> {
       final response = await request.close().timeout(const Duration(seconds: 10));
       if (response.statusCode != HttpStatus.ok) {
         client.close(force: true);
+        logEvent('remote HTTP ${response.statusCode}');
         return;
       }
       final source = await utf8.decoder.bind(response).join();
@@ -148,8 +182,11 @@ class _FeedScreenState extends State<FeedScreen> {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('remote_cards_json', source);
       applyDocument(source);
+      logEvent('remote refresh APPLY focus=${answerFocus.hasFocus}');
       if (mounted) setState(() {});
-    } catch (_) {}
+    } catch (_) {
+      logEvent('remote refresh ERROR');
+    }
   }
 
   ImprovementCard pickCard() {
@@ -189,7 +226,7 @@ class _FeedScreenState extends State<FeedScreen> {
     await prefs.setInt('completed_total', completed);
     await prefs.setInt('skipped_total', skipped);
     if (!mounted) return;
-    FocusScope.of(context).unfocus();
+    answerFocus.unfocus();
     answerController.clear();
     setState(() {
       revealed = false;
@@ -199,6 +236,11 @@ class _FeedScreenState extends State<FeedScreen> {
 
   @override
   Widget build(BuildContext context) {
+    buildCount++;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) logEvent('build #$buildCount focus=${answerFocus.hasFocus}');
+    });
+
     final current = card;
     if (current == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
@@ -211,7 +253,7 @@ class _FeedScreenState extends State<FeedScreen> {
         child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(24, 18, 24, 12),
+              padding: const EdgeInsets.fromLTRB(24, 18, 24, 8),
               child: Row(
                 children: [
                   const Text('instead', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
@@ -220,6 +262,22 @@ class _FeedScreenState extends State<FeedScreen> {
                 ],
               ),
             ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: ValueListenableBuilder<String>(
+                valueListenable: diagnostic,
+                builder: (context, value, _) => Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.black87,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(value, style: const TextStyle(color: Colors.white, fontSize: 10, height: 1.15, fontFamily: 'monospace')),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
@@ -240,16 +298,19 @@ class _FeedScreenState extends State<FeedScreen> {
                             Text('about ${current.seconds} sec', style: TextStyle(color: Colors.black.withValues(alpha: .5))),
                           ],
                         ),
-                        const SizedBox(height: 34),
-                        Text(current.prompt, style: const TextStyle(fontSize: 34, height: 1.08, fontWeight: FontWeight.w700, letterSpacing: -1)),
+                        const SizedBox(height: 28),
+                        Text(current.prompt, style: const TextStyle(fontSize: 30, height: 1.08, fontWeight: FontWeight.w700, letterSpacing: -1)),
                         if (isWriting) ...[
-                          const SizedBox(height: 26),
+                          const SizedBox(height: 22),
                           TextField(
                             controller: answerController,
+                            focusNode: answerFocus,
                             keyboardType: TextInputType.multiline,
                             textInputAction: TextInputAction.newline,
                             minLines: 3,
-                            maxLines: 8,
+                            maxLines: 6,
+                            onTap: () => logEvent('TextField TAP'),
+                            onChanged: (value) => logEvent('TEXT changed len=${value.length}'),
                             decoration: InputDecoration(
                               hintText: current.inputHint,
                               filled: true,
@@ -266,7 +327,7 @@ class _FeedScreenState extends State<FeedScreen> {
                           else
                             FilledButton.tonal(onPressed: () => setState(() => revealed = true), child: const Text('Reveal')),
                         ],
-                        const SizedBox(height: 32),
+                        const SizedBox(height: 28),
                         Row(
                           children: [
                             Expanded(child: OutlinedButton(onPressed: () => advance(false), style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(54)), child: const Text('Skip'))),
@@ -275,7 +336,7 @@ class _FeedScreenState extends State<FeedScreen> {
                           ],
                         ),
                         const SizedBox(height: 8),
-                        Center(child: Text('content $contentVersion', style: TextStyle(fontSize: 11, color: Colors.black.withValues(alpha: .35)))),
+                        Center(child: Text('diagnostic build • content $contentVersion', style: TextStyle(fontSize: 11, color: Colors.black.withValues(alpha: .35)))),
                       ],
                     ),
                   ),
