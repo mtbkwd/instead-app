@@ -19,22 +19,6 @@ class InsteadApp extends StatelessWidget {
         useMaterial3: true,
         scaffoldBackgroundColor: const Color(0xFFF4F1EA),
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF0A7B67)),
-        inputDecorationTheme: InputDecorationTheme(
-          filled: true,
-          fillColor: const Color(0xFFF7F6F2),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(18),
-            borderSide: const BorderSide(color: Color(0xFF284A43), width: 1.3),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(18),
-            borderSide: const BorderSide(color: Color(0xFF284A43), width: 1.3),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(18),
-            borderSide: const BorderSide(color: Color(0xFF0A7B67), width: 2),
-          ),
-        ),
       ),
       home: const FeedScreen(),
     );
@@ -42,7 +26,7 @@ class InsteadApp extends StatelessWidget {
 }
 
 enum CardKind { learn, think, create, remember, decide }
-
+en
 enum InteractionType { write, reveal }
 
 extension CardKindLabel on CardKind {
@@ -67,19 +51,18 @@ class ImprovementCard {
   });
 
   factory ImprovementCard.fromJson(Map<String, dynamic> json) {
-    final kind = CardKind.values.firstWhere(
-      (value) => value.name == (json['kind'] ?? 'think'),
-      orElse: () => CardKind.think,
-    );
-    final interaction = (json['interaction'] == 'reveal')
-        ? InteractionType.reveal
-        : InteractionType.write;
-
+    final kindName = json['kind'] as String? ?? 'think';
+    final interactionName = json['interaction'] as String? ?? 'write';
     return ImprovementCard(
-      kind: kind,
+      kind: CardKind.values.firstWhere(
+        (k) => k.name == kindName,
+        orElse: () => CardKind.think,
+      ),
       prompt: json['prompt'] as String? ?? 'What is worth thinking about right now?',
       seconds: (json['seconds'] as num?)?.toInt() ?? 30,
-      interaction: interaction,
+      interaction: interactionName == 'reveal'
+          ? InteractionType.reveal
+          : InteractionType.write,
       inputHint: json['inputHint'] as String? ?? 'Write your response...',
       reveal: json['reveal'] as String?,
     );
@@ -99,7 +82,6 @@ const fallbackCards = <ImprovementCard>[
     prompt: 'What would make today feel well spent by bedtime?',
     seconds: 30,
     interaction: InteractionType.write,
-    inputHint: 'One thing is enough...',
   ),
   ImprovementCard(
     kind: CardKind.create,
@@ -128,388 +110,269 @@ class FeedScreen extends StatefulWidget {
   State<FeedScreen> createState() => _FeedScreenState();
 }
 
-class _FeedScreenState extends State<FeedScreen> with WidgetsBindingObserver {
-  static const _remoteUrl =
+class _FeedScreenState extends State<FeedScreen> {
+  static const remoteUrl =
       'https://raw.githubusercontent.com/mtbkwd/instead-app/main/config/cards.json';
 
-  final Random _random = Random();
-  final TextEditingController _answerController = TextEditingController();
-  final FocusNode _focusNode = FocusNode();
-  final ScrollController _cardScrollController = ScrollController();
+  final Random random = Random();
+  final TextEditingController answerController = TextEditingController();
 
-  List<ImprovementCard> _cards = fallbackCards;
-  ImprovementCard? _card;
-  bool _revealed = false;
-  bool _refreshing = false;
-  int _completed = 0;
-  int _skipped = 0;
-  int _sessionCompleted = 0;
-  int _sessionSkipped = 0;
-  int _contentVersion = 0;
+  List<ImprovementCard> cards = fallbackCards;
+  ImprovementCard? card;
+  bool revealed = false;
+  int completed = 0;
+  int skipped = 0;
+  int contentVersion = 0;
 
-  final Map<CardKind, int> _done = {for (final k in CardKind.values) k: 0};
-  final Map<CardKind, int> _skip = {for (final k in CardKind.values) k: 0};
+  final Map<CardKind, int> done = {for (final k in CardKind.values) k: 0};
+  final Map<CardKind, int> skip = {for (final k in CardKind.values) k: 0};
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
-    _load();
+    load();
   }
 
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    _answerController.dispose();
-    _focusNode.dispose();
-    _cardScrollController.dispose();
+    answerController.dispose();
     super.dispose();
   }
 
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && !_focusNode.hasFocus) {
-      _refreshRemoteCards();
-    }
-  }
-
-  Future<void> _load() async {
+  Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
+    completed = prefs.getInt('completed_total') ?? 0;
+    skipped = prefs.getInt('skipped_total') ?? 0;
 
     for (final kind in CardKind.values) {
-      _done[kind] = prefs.getInt('done_${kind.name}') ?? 0;
-      _skip[kind] = prefs.getInt('skip_${kind.name}') ?? 0;
+      done[kind] = prefs.getInt('done_${kind.name}') ?? 0;
+      skip[kind] = prefs.getInt('skip_${kind.name}') ?? 0;
     }
 
     final cached = prefs.getString('remote_cards_json');
     if (cached != null) {
-      final parsed = _parseDocument(cached);
-      if (parsed.cards.isNotEmpty) {
-        _cards = parsed.cards;
-        _contentVersion = parsed.version;
-      }
+      applyDocument(cached);
     }
 
     if (!mounted) return;
     setState(() {
-      _completed = prefs.getInt('completed_total') ?? 0;
-      _skipped = prefs.getInt('skipped_total') ?? 0;
-      _card = _pickCard();
+      card = pickCard();
     });
 
-    await _refreshRemoteCards();
+    await refreshRemote();
   }
 
-  ({List<ImprovementCard> cards, int version}) _parseDocument(String source) {
+  void applyDocument(String source) {
     try {
       final root = jsonDecode(source) as Map<String, dynamic>;
-      final raw = root['cards'] as List<dynamic>? ?? const [];
-      final cards = raw
+      final rawCards = root['cards'] as List<dynamic>? ?? const [];
+      final parsed = rawCards
           .whereType<Map<String, dynamic>>()
           .map(ImprovementCard.fromJson)
           .where((c) => c.prompt.trim().isNotEmpty)
           .toList();
-      return (cards: cards, version: (root['version'] as num?)?.toInt() ?? 0);
-    } catch (_) {
-      return (cards: <ImprovementCard>[], version: 0);
-    }
+      if (parsed.isNotEmpty) {
+        cards = parsed;
+        contentVersion = (root['version'] as num?)?.toInt() ?? 0;
+      }
+    } catch (_) {}
   }
 
-  Future<void> _refreshRemoteCards() async {
-    if (_refreshing || _focusNode.hasFocus) return;
-    _refreshing = true;
-
+  Future<void> refreshRemote() async {
     try {
       final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
-      final uri = Uri.parse('$_remoteUrl?v=${DateTime.now().millisecondsSinceEpoch}');
-      final request = await client.getUrl(uri);
+      final request = await client.getUrl(
+        Uri.parse('$remoteUrl?v=${DateTime.now().millisecondsSinceEpoch}'),
+      );
       request.headers.set(HttpHeaders.cacheControlHeader, 'no-cache');
       final response = await request.close().timeout(const Duration(seconds: 10));
-
       if (response.statusCode != HttpStatus.ok) {
         client.close(force: true);
         return;
       }
-
       final source = await utf8.decoder.bind(response).join();
       client.close(force: true);
-      final parsed = _parseDocument(source);
-      if (parsed.cards.isEmpty) return;
-
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('remote_cards_json', source);
-
-      if (!mounted || _focusNode.hasFocus) return;
-      setState(() {
-        _cards = parsed.cards;
-        _contentVersion = parsed.version;
-      });
-    } catch (_) {
-      // Keep the cached card library when offline.
-    } finally {
-      _refreshing = false;
-    }
+      applyDocument(source);
+      if (!mounted) return;
+      setState(() {});
+    } catch (_) {}
   }
 
-  ImprovementCard _pickCard() {
-    if (_cards.isEmpty) return fallbackCards.first;
-
-    final kinds = _cards.map((card) => card.kind).toSet();
-    final weightedKinds = <CardKind>[];
-
-    for (final kind in kinds) {
-      final score = (4 + (_done[kind] ?? 0) - ((_skip[kind] ?? 0) ~/ 2)).clamp(1, 12);
-      for (var i = 0; i < score; i++) {
-        weightedKinds.add(kind);
-      }
-    }
-
-    final kind = weightedKinds[_random.nextInt(weightedKinds.length)];
-    final candidates = _cards.where((card) => card.kind == kind).toList();
-    ImprovementCard next = candidates[_random.nextInt(candidates.length)];
-
-    if (_card != null && candidates.length > 1) {
-      var attempts = 0;
-      while (next.prompt == _card!.prompt && attempts < 10) {
-        next = candidates[_random.nextInt(candidates.length)];
-        attempts++;
-      }
-    }
-
-    return next;
+  ImprovementCard pickCard() {
+    if (cards.isEmpty) return fallbackCards.first;
+    final kinds = cards.map((c) => c.kind).toSet().toList();
+    final kind = kinds[random.nextInt(kinds.length)];
+    final choices = cards.where((c) => c.kind == kind).toList();
+    return choices[random.nextInt(choices.length)];
   }
 
-  Future<void> _saveResponse(ImprovementCard card, String answer) async {
+  Future<void> saveResponse(ImprovementCard current, String answer) async {
     final prefs = await SharedPreferences.getInstance();
     final history = prefs.getStringList('response_history') ?? <String>[];
-
     history.add(jsonEncode({
       'time': DateTime.now().toIso8601String(),
-      'kind': card.kind.name,
-      'prompt': card.prompt,
-      'answer': answer.trim(),
+      'kind': current.kind.name,
+      'prompt': current.prompt,
+      'answer': answer,
     }));
-
     if (history.length > 100) {
       history.removeRange(0, history.length - 100);
     }
-
     await prefs.setStringList('response_history', history);
   }
 
-  Future<void> _submit() async {
-    final card = _card;
-    if (card == null) return;
-
-    final answer = _answerController.text.trim();
-    if (answer.isEmpty) {
-      _focusNode.requestFocus();
-      return;
-    }
-
-    await _saveResponse(card, answer);
-    await _advance(completed: true);
+  Future<void> submit() async {
+    final current = card;
+    if (current == null) return;
+    final answer = answerController.text.trim();
+    if (answer.isEmpty) return;
+    await saveResponse(current, answer);
+    await advance(true);
   }
 
-  Future<void> _advance({required bool completed}) async {
-    final card = _card;
-    if (card == null) return;
+  Future<void> advance(bool wasCompleted) async {
+    final current = card;
+    if (current == null) return;
+    final prefs = await SharedPreferences.getInstance();
 
-    if (completed) {
-      _completed++;
-      _sessionCompleted++;
-      _done[card.kind] = (_done[card.kind] ?? 0) + 1;
+    if (wasCompleted) {
+      completed++;
+      done[current.kind] = (done[current.kind] ?? 0) + 1;
     } else {
-      _skipped++;
-      _sessionSkipped++;
-      _skip[card.kind] = (_skip[card.kind] ?? 0) + 1;
+      skipped++;
+      skip[current.kind] = (skip[current.kind] ?? 0) + 1;
     }
 
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('completed_total', _completed);
-    await prefs.setInt('skipped_total', _skipped);
-    await prefs.setInt('done_${card.kind.name}', _done[card.kind] ?? 0);
-    await prefs.setInt('skip_${card.kind.name}', _skip[card.kind] ?? 0);
+    await prefs.setInt('completed_total', completed);
+    await prefs.setInt('skipped_total', skipped);
+    await prefs.setInt('done_${current.kind.name}', done[current.kind] ?? 0);
+    await prefs.setInt('skip_${current.kind.name}', skip[current.kind] ?? 0);
 
     if (!mounted) return;
-
-    _focusNode.unfocus();
-    _answerController.clear();
-    if (_cardScrollController.hasClients) {
-      _cardScrollController.jumpTo(0);
-    }
-
+    FocusScope.of(context).unfocus();
+    answerController.clear();
     setState(() {
-      _revealed = false;
-      _card = _pickCard();
+      revealed = false;
+      card = pickCard();
     });
-  }
-
-  void _showSession() {
-    final total = _sessionCompleted + _sessionSkipped;
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => Padding(
-        padding: const EdgeInsets.fromLTRB(24, 8, 24, 30),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('This session', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 18),
-            Text('$_sessionCompleted useful moments', style: const TextStyle(fontSize: 18)),
-            const SizedBox(height: 8),
-            Text('$_sessionSkipped skipped', style: const TextStyle(fontSize: 18)),
-            const SizedBox(height: 8),
-            Text(
-              total == 0
-                  ? 'Start with one card.'
-                  : '${((_sessionCompleted / total) * 100).round()}% completed.',
-              style: const TextStyle(fontSize: 18),
-            ),
-            const SizedBox(height: 18),
-            Text(
-              'Content version $_contentVersion',
-              style: TextStyle(color: Colors.black.withValues(alpha: .55)),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final card = _card;
-    if (card == null) {
+    final current = card;
+    if (current == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
-    final isWriting = card.interaction == InteractionType.write;
+    final isWriting = current.interaction == InteractionType.write;
 
     return Scaffold(
       resizeToAvoidBottomInset: true,
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 14, 20, 12),
-          child: Column(
-            children: [
-              // Keep this header in the tree at all times. Changing its height does
-              // not change the identity or tree position of the TextField below.
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 150),
-                height: keyboardOpen ? 0 : 52,
-                child: ClipRect(
-                  child: Align(
-                    alignment: Alignment.topCenter,
-                    heightFactor: keyboardOpen ? 0 : 1,
-                    child: Row(
-                      children: [
-                        const Text(
-                          'instead',
-                          style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
-                        ),
-                        const Spacer(),
-                        TextButton(
-                          onPressed: _showSession,
-                          child: Text('$_completed useful'),
-                        ),
-                      ],
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 18, 24, 12),
+              child: Row(
+                children: [
+                  const Text(
+                    'instead',
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+                  ),
+                  const Spacer(),
+                  Text(
+                    '$completed useful',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.primary,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
-                ),
+                ],
               ),
-              Expanded(
-                child: Container(
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(keyboardOpen ? 24 : 34),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: .08),
-                        blurRadius: 28,
-                        offset: const Offset(0, 10),
-                      ),
-                    ],
-                  ),
-                  child: Padding(
-                    padding: EdgeInsets.all(keyboardOpen ? 16 : 28),
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+                child: Material(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(30),
+                  elevation: 2,
+                  child: SingleChildScrollView(
+                    keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.manual,
+                    padding: const EdgeInsets.all(26),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
                           children: [
                             Text(
-                              card.kind.label,
+                              current.kind.label,
                               style: TextStyle(
-                                fontWeight: FontWeight.w700,
                                 color: Theme.of(context).colorScheme.primary,
+                                fontWeight: FontWeight.w800,
                               ),
                             ),
                             const Spacer(),
                             Text(
-                              'about ${card.seconds} sec',
-                              style: TextStyle(color: Colors.black.withValues(alpha: .52)),
+                              'about ${current.seconds} sec',
+                              style: TextStyle(color: Colors.black.withValues(alpha: .5)),
                             ),
                           ],
                         ),
-                        SizedBox(height: keyboardOpen ? 10 : 28),
-                        Expanded(
-                          child: SingleChildScrollView(
-                            controller: _cardScrollController,
-                            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.manual,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  card.prompt,
-                                  style: TextStyle(
-                                    fontSize: keyboardOpen ? 24 : 34,
-                                    height: 1.08,
-                                    fontWeight: FontWeight.w700,
-                                    letterSpacing: -1,
-                                  ),
-                                ),
-                                if (isWriting) ...[
-                                  SizedBox(height: keyboardOpen ? 14 : 24),
-                                  TextField(
-                                    key: const ValueKey('answer-field'),
-                                    controller: _answerController,
-                                    focusNode: _focusNode,
-                                    autofocus: false,
-                                    minLines: keyboardOpen ? 2 : 3,
-                                    maxLines: keyboardOpen ? 4 : 6,
-                                    textCapitalization: TextCapitalization.sentences,
-                                    keyboardType: TextInputType.multiline,
-                                    textInputAction: TextInputAction.newline,
-                                    decoration: InputDecoration(hintText: card.inputHint),
-                                  ),
-                                ],
-                                if (card.interaction == InteractionType.reveal) ...[
-                                  const SizedBox(height: 20),
-                                  if (_revealed && card.reveal != null)
-                                    Text(card.reveal!, style: const TextStyle(fontSize: 18, height: 1.4))
-                                  else
-                                    FilledButton.tonal(
-                                      onPressed: () => setState(() => _revealed = true),
-                                      child: const Text('Reveal'),
-                                    ),
-                                ],
-                              ],
-                            ),
+                        const SizedBox(height: 34),
+                        Text(
+                          current.prompt,
+                          style: const TextStyle(
+                            fontSize: 34,
+                            height: 1.08,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: -1,
                           ),
                         ),
-                        SizedBox(height: keyboardOpen ? 8 : 18),
+                        if (isWriting) ...[
+                          const SizedBox(height: 26),
+                          TextFormField(
+                            controller: answerController,
+                            autofocus: false,
+                            keyboardType: TextInputType.multiline,
+                            textInputAction: TextInputAction.newline,
+                            textCapitalization: TextCapitalization.sentences,
+                            minLines: 3,
+                            maxLines: 8,
+                            decoration: InputDecoration(
+                              hintText: current.inputHint,
+                              filled: true,
+                              fillColor: const Color(0xFFF7F6F2),
+                              contentPadding: const EdgeInsets.all(18),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(18),
+                              ),
+                            ),
+                          ),
+                        ],
+                        if (current.reveal != null) ...[
+                          const SizedBox(height: 24),
+                          if (revealed)
+                            Text(
+                              current.reveal!,
+                              style: const TextStyle(fontSize: 18, height: 1.4),
+                            )
+                          else
+                            FilledButton.tonal(
+                              onPressed: () => setState(() => revealed = true),
+                              child: const Text('Reveal'),
+                            ),
+                        ],
+                        const SizedBox(height: 32),
                         Row(
                           children: [
                             Expanded(
                               child: OutlinedButton(
-                                onPressed: () => _advance(completed: false),
+                                onPressed: () => advance(false),
                                 style: OutlinedButton.styleFrom(
-                                  minimumSize: Size.fromHeight(keyboardOpen ? 46 : 52),
+                                  minimumSize: const Size.fromHeight(54),
                                 ),
                                 child: const Text('Skip'),
                               ),
@@ -517,37 +380,32 @@ class _FeedScreenState extends State<FeedScreen> with WidgetsBindingObserver {
                             const SizedBox(width: 12),
                             Expanded(
                               child: FilledButton(
-                                onPressed: isWriting ? _submit : () => _advance(completed: true),
+                                onPressed: isWriting ? submit : () => advance(true),
                                 style: FilledButton.styleFrom(
-                                  minimumSize: Size.fromHeight(keyboardOpen ? 46 : 52),
+                                  minimumSize: const Size.fromHeight(54),
                                 ),
                                 child: Text(isWriting ? 'Submit' : 'Done'),
                               ),
                             ),
                           ],
                         ),
+                        const SizedBox(height: 8),
+                        Center(
+                          child: Text(
+                            'content $contentVersion',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.black.withValues(alpha: .35),
+                            ),
+                          ),
+                        ),
                       ],
                     ),
                   ),
                 ),
               ),
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 150),
-                height: keyboardOpen ? 0 : 42,
-                child: ClipRect(
-                  child: Align(
-                    heightFactor: keyboardOpen ? 0 : 1,
-                    child: Center(
-                      child: Text(
-                        isWriting ? 'Answer or skip' : 'Swipe or tap to continue',
-                        style: TextStyle(color: Colors.black.withValues(alpha: .5)),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
