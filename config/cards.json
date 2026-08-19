@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "cards": [
     {"kind":"learn","prompt":"What does ‘zeitgeist’ literally mean?","seconds":20,"interaction":"write","inputHint":"Your answer..."},
     {"kind":"learn","prompt":"Which is larger: a billion seconds or 30 years?","seconds":20,"interaction":"write","inputHint":"Your answer..."},
@@ -17,7 +17,7 @@
     {"kind":"remember","prompt":"Without checking, name three things you did yesterday.","seconds":30,"interaction":"write","inputHint":"Three things..."},
     {"kind":"remember","prompt":"Put apple, lighthouse, velvet and train into one absurd mental image. Describe it.","seconds":30,"interaction":"write","inputHint":"Describe the image..."},
     {"kind":"remember","prompt":"Think of the last three people you messaged. What did each conversation concern?","seconds":35,"interaction":"write","inputHint":"Your response..."},
-    {"kind":"remember","prompt":"Look away from the screen. What were the last five words you read?","seconds":20,"interaction":"write","inputHint":"Five words..."},
+    {"kind":"remember","prompt":"Without checking, what was the previous card asking you to think about?","seconds":20,"interaction":"write","inputHint":"What do you remember?"},
     {"kind":"decide","prompt":"What is one task you keep avoiding that would take less than ten minutes?","seconds":30,"interaction":"write","inputHint":"Your answer..."},
     {"kind":"decide","prompt":"Choose one thing you want to know more about by this time next week.","seconds":30,"interaction":"write","inputHint":"Your answer..."},
     {"kind":"decide","prompt":"What is one notification on your phone that deserves to be turned off?","seconds":25,"interaction":"write","inputHint":"Your answer..."},
