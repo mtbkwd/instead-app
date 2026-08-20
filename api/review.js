@@ -11,17 +11,7 @@ const REVIEW_SCHEMA = {
     content_quality: { type: 'number', minimum: 0, maximum: 1 },
     product_insight: { type: 'string' }
   },
-  required: [
-    'feedback',
-    'understanding_score',
-    'interest_delta',
-    'skill_delta',
-    'difficulty_next',
-    'follow_up_prompt',
-    'follow_up_topic',
-    'content_quality',
-    'product_insight'
-  ],
+  required: ['feedback','understanding_score','interest_delta','skill_delta','difficulty_next','follow_up_prompt','follow_up_topic','content_quality','product_insight'],
   additionalProperties: false
 };
 
@@ -40,43 +30,31 @@ export default async function handler(req, res) {
   const input = [
     {
       role: 'system',
-      content: [
-        {
-          type: 'input_text',
-          text: `You are the adaptive learning reviewer inside an app called Instead. The app replaces doom scrolling with short, engaging, useful learning interactions. Review the user's answer, not the person. Be warm, concise, specific and educational. Never flatter weak answers. Distinguish knowledge, reasoning, creativity and interest. Generate a follow-up that is more valuable than the original question and naturally responds to the answer. Product insight should describe what this interaction suggests about how the app or question format could improve. Keep feedback under 70 words and follow-up under 35 words.`
-        }
-      ]
+      content: [{
+        type: 'input_text',
+        text: `You are the adaptive learning reviewer inside an app called Instead. The app replaces doom scrolling with short, engaging, useful learning interactions. Review the user's answer, not the person. Be concise, specific and educational. Never flatter weak answers. Distinguish knowledge, reasoning, creativity and interest. Generate a follow-up that is more valuable than the original question and naturally responds to the answer. Product insight should describe what this interaction suggests about how the app or question format could improve. Keep feedback under 70 words and follow-up under 35 words.`
+      }]
     },
     {
       role: 'user',
-      content: [
-        {
-          type: 'input_text',
-          text: JSON.stringify({ question, answer, topic, difficulty, reference_explanation: reveal || null, recent_signals: recentSignals || {} })
-        }
-      ]
+      content: [{
+        type: 'input_text',
+        text: JSON.stringify({ question, answer, topic, difficulty, reference_explanation: reveal || null, recent_signals: recentSignals || {} })
+      }]
     }
   ];
 
   try {
     const response = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json'
-      },
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: process.env.OPENAI_MODEL || 'gpt-5.2',
         reasoning: { effort: 'none' },
         input,
         text: {
           verbosity: 'low',
-          format: {
-            type: 'json_schema',
-            name: 'instead_review',
-            strict: true,
-            schema: REVIEW_SCHEMA
-          }
+          format: { type: 'json_schema', name: 'instead_review', strict: true, schema: REVIEW_SCHEMA }
         }
       })
     });
@@ -88,13 +66,24 @@ export default async function handler(req, res) {
     }
 
     const data = await response.json();
-    const text = data.output
-      ?.flatMap(item => item.content || [])
-      ?.find(item => item.type === 'output_text')
-      ?.text;
-
+    const text = data.output?.flatMap(item => item.content || [])?.find(item => item.type === 'output_text')?.text;
     if (!text) return res.status(502).json({ error: 'No structured review returned' });
-    return res.status(200).json(JSON.parse(text));
+
+    const review = JSON.parse(text);
+    console.log('instead_product_signal', JSON.stringify({
+      time: new Date().toISOString(),
+      topic: topic || 'unknown',
+      difficulty: Number(difficulty) || 1,
+      answer_length: String(answer).length,
+      understanding_score: review.understanding_score,
+      interest_delta: review.interest_delta,
+      skill_delta: review.skill_delta,
+      difficulty_next: review.difficulty_next,
+      content_quality: review.content_quality,
+      product_insight: review.product_insight
+    }));
+
+    return res.status(200).json(review);
   } catch (error) {
     console.error(error);
     return res.status(500).json({ error: 'Reviewer error' });
