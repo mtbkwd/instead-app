@@ -62,6 +62,42 @@ class ImprovementCard {
   );
 }
 
+class ReviewResult {
+  final String feedback;
+  final double understandingScore;
+  final double interestDelta;
+  final double skillDelta;
+  final int difficultyNext;
+  final String followUpPrompt;
+  final String followUpTopic;
+  final double contentQuality;
+  final String productInsight;
+
+  const ReviewResult({
+    required this.feedback,
+    required this.understandingScore,
+    required this.interestDelta,
+    required this.skillDelta,
+    required this.difficultyNext,
+    required this.followUpPrompt,
+    required this.followUpTopic,
+    required this.contentQuality,
+    required this.productInsight,
+  });
+
+  factory ReviewResult.fromJson(Map<String, dynamic> j) => ReviewResult(
+    feedback: j['feedback'] as String? ?? '',
+    understandingScore: (j['understanding_score'] as num?)?.toDouble() ?? .5,
+    interestDelta: (j['interest_delta'] as num?)?.toDouble() ?? 0,
+    skillDelta: (j['skill_delta'] as num?)?.toDouble() ?? 0,
+    difficultyNext: ((j['difficulty_next'] as num?)?.toInt() ?? 1).clamp(1, 3),
+    followUpPrompt: j['follow_up_prompt'] as String? ?? '',
+    followUpTopic: j['follow_up_topic'] as String? ?? '',
+    contentQuality: (j['content_quality'] as num?)?.toDouble() ?? .5,
+    productInsight: j['product_insight'] as String? ?? '',
+  );
+}
+
 const fallbackCards = <ImprovementCard>[
   ImprovementCard(
     kind: CardKind.learn,
@@ -105,9 +141,12 @@ class _FeedScreenState extends State<FeedScreen> {
 
   List<ImprovementCard> cards = fallbackCards;
   ImprovementCard? card;
+  ReviewResult? currentReview;
   bool revealed = false;
   bool feedbackMode = false;
+  bool reviewing = false;
   String submittedAnswer = '';
+  String reviewEndpoint = '';
   int completed = 0;
   int skipped = 0;
   int contentVersion = 0;
@@ -171,6 +210,7 @@ class _FeedScreenState extends State<FeedScreen> {
         cards = parsed;
         contentVersion = (root['version'] as num?)?.toInt() ?? 0;
       }
+      reviewEndpoint = root['reviewEndpoint'] as String? ?? reviewEndpoint;
     } catch (_) {}
   }
 
@@ -221,6 +261,21 @@ class _FeedScreenState extends State<FeedScreen> {
   }
 
   ImprovementCard pickFollowUp(ImprovementCard previous) {
+    final aiPrompt = currentReview?.followUpPrompt.trim() ?? '';
+    if (aiPrompt.isNotEmpty) {
+      final next = ImprovementCard(
+        kind: previous.kind,
+        topic: currentReview!.followUpTopic.trim().isEmpty ? previous.topic : currentReview!.followUpTopic.trim(),
+        difficulty: currentReview!.difficultyNext,
+        prompt: aiPrompt,
+        seconds: 30,
+        interaction: InteractionType.write,
+        inputHint: 'Your answer...',
+      );
+      _remember(next);
+      return next;
+    }
+
     final sameTopic = cards
         .where((c) => c.topic == previous.topic && c.prompt != previous.prompt && !recentlySeen.contains(c.prompt))
         .toList();
@@ -264,20 +319,78 @@ class _FeedScreenState extends State<FeedScreen> {
     await _saveProfile();
   }
 
+  Future<ReviewResult?> requestReview(ImprovementCard c, String answer) async {
+    if (reviewEndpoint.trim().isEmpty) return null;
+    HttpClient? client;
+    try {
+      client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
+      final req = await client.postUrl(Uri.parse(reviewEndpoint));
+      req.headers.contentType = ContentType.json;
+      req.write(jsonEncode({
+        'question': c.prompt,
+        'answer': answer,
+        'topic': c.topic,
+        'difficulty': c.difficulty,
+        'reveal': c.reveal,
+        'recentSignals': {
+          'interest': interest[c.topic] ?? 0,
+          'skill': skill[c.topic] ?? 1,
+        },
+      }));
+      final res = await req.close().timeout(const Duration(seconds: 20));
+      if (res.statusCode != HttpStatus.ok) return null;
+      final body = await utf8.decoder.bind(res).join();
+      return ReviewResult.fromJson(jsonDecode(body) as Map<String, dynamic>);
+    } catch (_) {
+      return null;
+    } finally {
+      client?.close(force: true);
+    }
+  }
+
+  Future<void> _applyReview(ImprovementCard c, ReviewResult review) async {
+    interest[c.topic] = (interest[c.topic] ?? 0) + review.interestDelta;
+    skill[c.topic] = ((skill[c.topic] ?? 1) + review.skillDelta).clamp(1.0, 3.0);
+    final p = await SharedPreferences.getInstance();
+    final insights = p.getStringList('product_insights') ?? <String>[];
+    insights.add(jsonEncode({
+      'time': DateTime.now().toIso8601String(),
+      'topic': c.topic,
+      'prompt': c.prompt,
+      'understanding': review.understandingScore,
+      'contentQuality': review.contentQuality,
+      'productInsight': review.productInsight,
+    }));
+    if (insights.length > 200) insights.removeRange(0, insights.length - 200);
+    await p.setStringList('product_insights', insights);
+    await _saveProfile();
+  }
+
   Future<void> submit() async {
     final current = card;
     if (current == null) return;
     final answer = answerController.text.trim();
-    if (answer.isEmpty) return;
+    if (answer.isEmpty || reviewing) return;
+
+    answerFocus.unfocus();
+    setState(() {
+      submittedAnswer = answer;
+      reviewing = true;
+    });
+
     await recordSignal(current, useful: true, answer: answer);
+    final review = await requestReview(current, answer);
+    if (review != null) await _applyReview(current, review);
+
     final p = await SharedPreferences.getInstance();
     completed++;
     await p.setInt('completed_total', completed);
     if (!mounted) return;
-    answerFocus.unfocus();
+
     setState(() {
-      submittedAnswer = answer;
+      currentReview = review;
       feedbackMode = true;
+      reviewing = false;
       revealed = true;
     });
   }
@@ -296,7 +409,7 @@ class _FeedScreenState extends State<FeedScreen> {
 
   Future<void> skip() async {
     final current = card;
-    if (current == null) return;
+    if (current == null || reviewing) return;
     await recordSignal(current, useful: false);
     final p = await SharedPreferences.getInstance();
     skipped++;
@@ -307,31 +420,36 @@ class _FeedScreenState extends State<FeedScreen> {
   void _nextCard({required bool followUp}) {
     final current = card;
     if (current == null || !mounted) return;
+    final next = followUp ? pickFollowUp(current) : pickCard();
     answerFocus.unfocus();
     answerController.clear();
     setState(() {
       revealed = false;
       feedbackMode = false;
       submittedAnswer = '';
-      card = followUp ? pickFollowUp(current) : pickCard();
+      currentReview = null;
+      reviewing = false;
+      card = next;
     });
   }
 
   String feedbackText(ImprovementCard c) {
+    final ai = currentReview?.feedback.trim() ?? '';
+    if (ai.isNotEmpty) return ai;
     if (c.reveal != null && c.reveal!.trim().isNotEmpty) return c.reveal!;
     if (c.kind == CardKind.create) {
-      return 'You made something from a blank page. That is the skill: generating an option before judging it. The next challenge will stay near ${c.topic.replaceAll('_', ' ')} and push it a little further.';
+      return 'You generated an option from a blank page. The next challenge stays near ${c.topic.replaceAll('_', ' ')} and pushes it further.';
     }
     if (c.kind == CardKind.decide) {
-      return 'Your answer turns an abstract problem into a concrete choice. The useful next move is to test the reasoning behind it rather than treating the first answer as final.';
+      return 'Your answer turns an abstract problem into a concrete choice. The next useful move is testing the reasoning behind it.';
     }
     if (c.kind == CardKind.think) {
-      return 'You committed to a position instead of passively reading. That makes the next question more useful because it can challenge or extend your reasoning.';
+      return 'You committed to a position instead of passively reading. That gives the next question something real to challenge or extend.';
     }
     if (c.kind == CardKind.remember) {
-      return 'Retrieval is the exercise. Trying to reconstruct the answer strengthens memory more than rereading it.';
+      return 'Retrieval is the exercise. Trying to reconstruct information strengthens memory more than rereading it.';
     }
-    return 'Your answer is now part of your local learning profile. The next card will stay close to this topic and adapt the difficulty.';
+    return 'Your answer is now part of your learning profile. The next card will stay close to this topic and adapt its difficulty.';
   }
 
   @override
@@ -382,6 +500,7 @@ class _FeedScreenState extends State<FeedScreen> {
                           TextField(
                             controller: answerController,
                             focusNode: answerFocus,
+                            enabled: !reviewing,
                             keyboardType: TextInputType.multiline,
                             textInputAction: TextInputAction.newline,
                             minLines: 3,
@@ -394,6 +513,10 @@ class _FeedScreenState extends State<FeedScreen> {
                               border: OutlineInputBorder(borderRadius: BorderRadius.circular(18)),
                             ),
                           ),
+                          if (reviewing) ...[
+                            const SizedBox(height: 14),
+                            const Row(children: [SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)), SizedBox(width: 10), Text('Reviewing your answer...')]),
+                          ],
                         ],
                         if (feedbackMode) ...[
                           const SizedBox(height: 20),
@@ -408,9 +531,13 @@ class _FeedScreenState extends State<FeedScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text('Why this matters', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800)),
+                                const Text('What this tells us', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800)),
                                 const SizedBox(height: 8),
                                 Text(feedbackText(current), style: const TextStyle(fontSize: 17, height: 1.4)),
+                                if (currentReview != null) ...[
+                                  const SizedBox(height: 12),
+                                  Text('Understanding ${(currentReview!.understandingScore * 100).round()}% • next difficulty ${currentReview!.difficultyNext}/3', style: TextStyle(fontSize: 12, color: Colors.black.withValues(alpha: .55))),
+                                ],
                               ],
                             ),
                           ),
@@ -428,26 +555,25 @@ class _FeedScreenState extends State<FeedScreen> {
                         ],
                         const SizedBox(height: 28),
                         if (feedbackMode)
-                          SizedBox(
-                            width: double.infinity,
-                            child: FilledButton(
-                              onPressed: markUsefulAndContinue,
-                              style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(56)),
-                              child: Text('Another ${current.topic.replaceAll('_', ' ')} challenge'),
-                            ),
+                          FilledButton(
+                            onPressed: () => _nextCard(followUp: true),
+                            style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(56)),
+                            child: Text(currentReview?.followUpPrompt.trim().isNotEmpty == true ? 'Try the follow-up' : 'Keep going'),
                           )
                         else
                           Row(
                             children: [
-                              Expanded(child: OutlinedButton(onPressed: skip, style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(54)), child: const Text('Skip'))),
+                              Expanded(child: OutlinedButton(onPressed: reviewing ? null : skip, style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(54)), child: const Text('Skip'))),
                               const SizedBox(width: 12),
-                              Expanded(child: FilledButton(onPressed: writing ? submit : markUsefulAndContinue, style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(54)), child: Text(writing ? 'Submit' : 'Useful'))),
+                              Expanded(child: FilledButton(onPressed: reviewing ? null : (writing ? submit : markUsefulAndContinue), style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(54)), child: Text(writing ? 'Submit' : 'Useful'))),
                             ],
                           ),
                         const SizedBox(height: 12),
                         Center(
                           child: Text(
-                            'Personalising from what you answer and skip • content $contentVersion',
+                            reviewEndpoint.trim().isEmpty
+                                ? 'Adaptive locally • AI reviewer awaiting connection • content $contentVersion'
+                                : 'AI reviewing answers • content $contentVersion',
                             textAlign: TextAlign.center,
                             style: TextStyle(fontSize: 11, color: Colors.black.withValues(alpha: .4)),
                           ),
