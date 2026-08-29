@@ -9,10 +9,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout poker trainer
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: poker-trainer-build
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -27,7 +25,7 @@ jobs:
           cache: true
 
       - name: Generate Android project
-        run: flutter create --platforms=android --org app.pokertrainer .
+        run: flutter create --platforms=android --org app.instead .
 
       - name: Remove generated sample test
         run: rm -f test/widget_test.dart
@@ -42,11 +40,11 @@ jobs:
         run: flutter build apk --debug --build-number=${{ github.run_number }}
 
       - name: Give APK unique filename
-        run: cp build/app/outputs/flutter-apk/app-debug.apk build/app/outputs/flutter-apk/poker-trainer-v2-${{ github.run_number }}.apk
+        run: cp build/app/outputs/flutter-apk/app-debug.apk build/app/outputs/flutter-apk/instead-build-${{ github.run_number }}.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: poker-trainer-v2-${{ github.run_number }}
-          path: build/app/outputs/flutter-apk/poker-trainer-v2-${{ github.run_number }}.apk
+          name: instead-build-${{ github.run_number }}
+          path: build/app/outputs/flutter-apk/instead-build-${{ github.run_number }}.apk
           retention-days: 14
