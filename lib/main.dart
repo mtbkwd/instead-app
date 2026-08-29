@@ -16,7 +16,7 @@ class _Game extends State<Game>{
  'SB':'22+ A2s+ K2s+ Q2s+ J5s+ T6s+ 96s+ 86s+ 75s+ 65s 54s A2o+ K7o+ Q8o+ J8o+ T8o+ 98o'};
  @override void initState(){super.initState();newHand();}
  void makeDeck(){deck=[for(final a in ranks)for(final b in suits)a+b]..shuffle(r);}
- double blind()=>pos=='SB'?.5:pos=='BB'?1:0;
+ double blind() => pos == 'SB' ? 0.5 : (pos == 'BB' ? 1.0 : 0.0);
  void newHand(){makeDeck();hero=[deck.removeLast(),deck.removeLast()];board=[];pos=positions[r.nextInt(6)];street='PRE-FLOP';over=false;hist.clear();feedback='Choose the best action.';final x=pos=='UTG'?0:r.nextInt(3);if(x==0){face=Face.unopened;pot=1.5;call=max(0,1-blind());action='Action folds to you.';}else if(x==1){face=Face.open;pot=4;call=max(0,2.5-blind());action='One player opens to 2.5 BB.';}else{face=Face.limp;pot=2.5;call=max(0,1-blind());action='One player limps for 1 BB.';}if(pos=='BB'&&face==Face.unopened){face=Face.check;pot=2;call=0;action='Small blind completes. Check or raise.';}save();setState((){});}
  List<String>get legal{if(face==Face.check)return['CHECK','BET'];if(face==Face.open||face==Face.bet)return['FOLD','CALL','RAISE'];if(face==Face.limp)return call>0?['FOLD','CALL','RAISE']:['CHECK','RAISE'];return['FOLD','RAISE'];}
  String hand(){int v(String x)=>ranks.indexOf(x[0]);var a=hero[0],b=hero[1];if(v(a)<v(b)){final t=a;a=b;b=t;}if(a[0]==b[0])return a[0]+b[0];return a[0]+b[0]+(a[1]==b[1]?'s':'o');}
