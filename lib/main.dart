@@ -1,244 +1,43 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
-
-void main() => runApp(const PokerTrainerApp());
-
-class PokerTrainerApp extends StatelessWidget {
-  const PokerTrainerApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'Poker Trainer',
-      theme: ThemeData(
-        brightness: Brightness.dark,
-        useMaterial3: true,
-        scaffoldBackgroundColor: const Color(0xFF0E1417),
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF23C483),
-          brightness: Brightness.dark,
-        ),
-      ),
-      home: const TrainerScreen(),
-    );
-  }
+void main()=>runApp(const App());
+class App extends StatelessWidget{const App({super.key});Widget build(BuildContext c)=>MaterialApp(debugShowCheckedModeBanner:false,theme:ThemeData(useMaterial3:true,scaffoldBackgroundColor:const Color(0xfff1efe7),colorScheme:ColorScheme.fromSeed(seedColor:const Color(0xff171714))),home:const Game());}
+enum Face{unopened,limp,open,check,bet}
+class Snap{final String street,action,feedback;final double pot;Snap(this.street,this.action,this.feedback,this.pot);}
+class Game extends StatefulWidget{const Game({super.key});State<Game>createState()=>_Game();}
+class _Game extends State<Game>{
+ final r=Random(),ranks=['2','3','4','5','6','7','8','9','T','J','Q','K','A'],suits=['♠','♥','♦','♣'],positions=['UTG','HJ','CO','BTN','SB','BB'];late List<String>deck;
+ List<String>hero=[],board=[];final hist=<Snap>[];String pos='BTN',street='PRE-FLOP',action='',feedback='Choose the best action.';Face face=Face.unopened;double pot=1.5,call=0;int score=0,decisions=0;bool over=false;
+ static const ranges=<String,String>{
+ 'UTG':'22+ A2s+ K9s+ Q9s+ J9s+ T9s 98s 87s 76s 65s ATo+ KQo',
+ 'HJ':'22+ A2s+ K8s+ Q9s+ J9s+ T8s+ 98s 87s 76s 65s 54s A9o+ KTo+ QTo+ JTo',
+ 'CO':'22+ A2s+ K5s+ Q8s+ J8s+ T8s+ 97s+ 87s 76s 65s 54s A7o+ K9o+ Q9o+ J9o+ T9o',
+ 'BTN':'22+ A2s+ K2s+ Q5s+ J7s+ T7s+ 96s+ 86s+ 75s+ 65s 54s A2o+ K7o+ Q8o+ J8o+ T8o+ 98o',
+ 'SB':'22+ A2s+ K2s+ Q2s+ J5s+ T6s+ 96s+ 86s+ 75s+ 65s 54s A2o+ K7o+ Q8o+ J8o+ T8o+ 98o'};
+ @override void initState(){super.initState();newHand();}
+ void makeDeck(){deck=[for(final a in ranks)for(final b in suits)a+b]..shuffle(r);}
+ double blind()=>pos=='SB'?.5:pos=='BB'?1:0;
+ void newHand(){makeDeck();hero=[deck.removeLast(),deck.removeLast()];board=[];pos=positions[r.nextInt(6)];street='PRE-FLOP';over=false;hist.clear();feedback='Choose the best action.';final x=pos=='UTG'?0:r.nextInt(3);if(x==0){face=Face.unopened;pot=1.5;call=max(0,1-blind());action='Action folds to you.';}else if(x==1){face=Face.open;pot=4;call=max(0,2.5-blind());action='One player opens to 2.5 BB.';}else{face=Face.limp;pot=2.5;call=max(0,1-blind());action='One player limps for 1 BB.';}if(pos=='BB'&&face==Face.unopened){face=Face.check;pot=2;call=0;action='Small blind completes. Check or raise.';}save();setState((){});}
+ List<String>get legal{if(face==Face.check)return['CHECK','BET'];if(face==Face.open||face==Face.bet)return['FOLD','CALL','RAISE'];if(face==Face.limp)return call>0?['FOLD','CALL','RAISE']:['CHECK','RAISE'];return['FOLD','RAISE'];}
+ String hand(){int v(String x)=>ranks.indexOf(x[0]);var a=hero[0],b=hero[1];if(v(a)<v(b)){final t=a;a=b;b=t;}if(a[0]==b[0])return a[0]+b[0];return a[0]+b[0]+(a[1]==b[1]?'s':'o');}
+ bool match(String h,String t){if(!t.endsWith('+'))return h==t;final b=t.substring(0,t.length-1);if(b.length==2&&b[0]==b[1])return h.length==2&&ranks.indexOf(h[0])>=ranks.indexOf(b[0]);return h.length==b.length&&h[0]==b[0]&&h.substring(2)==b.substring(2)&&ranks.indexOf(h[1])>=ranks.indexOf(b[1]);}
+ bool openHand(){final h=hand();return (ranges[pos]??'').split(' ').any((x)=>match(h,x));}
+ bool pair(){final m=<String,int>{};for(final c in [...hero,...board])m[c[0]]=(m[c[0]]??0)+1;return m.values.any((x)=>x>=2);}
+ String best(){if(street=='PRE-FLOP'){if(face==Face.unopened)return openHand()?'RAISE':'FOLD';if(face==Face.check)return openHand()?'RAISE':'CHECK';if(face==Face.limp)return openHand()?'RAISE':(call==0?'CHECK':'FOLD');if(face==Face.open){final h=hand();if(['AA','KK','QQ','JJ','AKs','AKo','AQs'].contains(h))return'RAISE';return openHand()?'CALL':'FOLD';}}if(face==Face.check)return pair()?'BET':'CHECK';return pair()?'CALL':'FOLD';}
+ void tap(String a){if(a=='RAISE'||a=='BET'){sizes(a);return;}commit(a,null);}
+ Future<void>sizes(String a)async{final pre=street=='PRE-FLOP';final xs=pre?(face==Face.open?[7.5,9.0,10.0]:[2.5,3.0,3.5]):[.25,.33,.5,.75,1.0];final x=await showModalBottomSheet<double>(context:context,backgroundColor:const Color(0xfff1efe7),builder:(c)=>Padding(padding:const EdgeInsets.all(24),child:Column(mainAxisSize:MainAxisSize.min,crossAxisAlignment:CrossAxisAlignment.stretch,children:[Text('CHOOSE '+a+' SIZE',style:const TextStyle(fontSize:24,fontWeight:FontWeight.w900)),const SizedBox(height:18),Wrap(spacing:8,children:[for(final n in xs)ActionChip(label:Text(pre?bb(n)+' BB':(n*100).round().toString()+'% POT'),onPressed:()=>Navigator.pop(c,n))])])));if(x!=null)commit(a,x);}
+ void commit(String a,double?size){final b=best();decisions++;if(a==b)score++;feedback=a==b?'Correct: '+a+'.':'Your action: '+a+'. Preferred: '+b+'.';if(a=='FOLD'){over=true;save();setState((){});return;}if(street=='PRE-FLOP'){if(a=='CALL')pot+=call;if(a=='RAISE'){final target=size??3;pot+=max(0,target-blind());pot+=max(0,target-(face==Face.open?2.5:1));}next();return;}if(a=='CHECK'){next();return;}if(a=='CALL'){pot+=call*2;next();return;}final wager=pot*(size??.5);pot+=wager*2;next();}
+ void next(){if(street=='RIVER'){over=true;save();setState((){});return;}if(street=='PRE-FLOP'){board.addAll([deck.removeLast(),deck.removeLast(),deck.removeLast()]);street='FLOP';}else if(street=='FLOP'){board.add(deck.removeLast());street='TURN';}else{board.add(deck.removeLast());street='RIVER';}face=Face.check;call=0;action='Opponent checks to you.';save();setState((){});}
+ void save()=>hist.add(Snap(street,action,feedback,pot));
+ void history()=>showModalBottomSheet(context:context,isScrollControlled:true,backgroundColor:const Color(0xfff1efe7),builder:(c)=>DraggableScrollableSheet(expand:false,initialChildSize:.75,builder:(c,s)=>ListView(controller:s,padding:const EdgeInsets.all(24),children:[const Text('HAND HISTORY',style:TextStyle(fontSize:28,fontWeight:FontWeight.w900)),const SizedBox(height:16),for(var i=0;i<hist.length;i++)Container(margin:const EdgeInsets.only(bottom:10),padding:const EdgeInsets.all(14),decoration:BoxDecoration(border:Border.all(),borderRadius:BorderRadius.circular(3)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text((i+1).toString()+'. '+hist[i].street+' / POT '+bb(hist[i].pot)+' BB',style:const TextStyle(fontWeight:FontWeight.w800)),Text(hist[i].action),if(hist[i].feedback!='Choose the best action.')Text(hist[i].feedback)]))])));
+ String bb(double x)=>x==x.roundToDouble()?x.toInt().toString():x.toStringAsFixed(1);
+ @override Widget build(BuildContext c){final acc=decisions==0?0:(score*100/decisions).round();return Scaffold(body:SafeArea(child:Padding(padding:const EdgeInsets.fromLTRB(18,12,18,18),child:Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[
+ Row(children:[IconButton(onPressed:hist.length>1?history:null,icon:const Icon(Icons.arrow_back)),const Expanded(child:Text('POKER / TRAINER',style:TextStyle(fontSize:20,fontWeight:FontWeight.w900))),Text(acc.toString()+'%',style:const TextStyle(fontSize:20,fontWeight:FontWeight.w900))]),
+ Padding(padding:const EdgeInsets.symmetric(horizontal:12),child:Text('SCORE '+score.toString()+' / '+decisions.toString()+' DECISIONS',style:const TextStyle(fontSize:12,fontWeight:FontWeight.w700))),const SizedBox(height:16),
+ Container(padding:const EdgeInsets.all(20),decoration:BoxDecoration(color:const Color(0xff171714),borderRadius:BorderRadius.circular(3)),child:Column(children:[Row(children:[Text('6 MAX / 100 BB / '+pos,style:const TextStyle(color:Color(0xfff1efe7),fontWeight:FontWeight.w800)),const Spacer(),Text('POT '+bb(pot)+' BB',style:const TextStyle(color:Color(0xfff1efe7)))]),const SizedBox(height:30),Text(street,style:const TextStyle(color:Color(0xff99978f),fontWeight:FontWeight.w800)),const SizedBox(height:14),Cards(cards:board.isEmpty?['•','•','•']:board),const SizedBox(height:30),const Text('YOUR HAND',style:TextStyle(color:Color(0xfff1efe7),fontWeight:FontWeight.w800,fontSize:12)),const SizedBox(height:12),Cards(cards:hero,big:true)])),
+ const SizedBox(height:18),Text(action,style:const TextStyle(fontSize:20,fontWeight:FontWeight.w800)),if(call>0&&legal.contains('CALL'))Text('CALL '+bb(call)+' BB',style:const TextStyle(fontSize:13,fontWeight:FontWeight.w800)),const SizedBox(height:8),Text(feedback,style:const TextStyle(fontSize:15)),const Spacer(),
+ if(!over)Row(children:[for(var i=0;i<legal.length;i++)...[if(i>0)const SizedBox(width:8),Expanded(child:Action(label:legal[i],go:()=>tap(legal[i])))]] )else Action(label:'NEXT HAND',go:newHand)
+ ]))));}
 }
-
-class TrainerScreen extends StatefulWidget {
-  const TrainerScreen({super.key});
-
-  @override
-  State<TrainerScreen> createState() => _TrainerScreenState();
-}
-
-class _TrainerScreenState extends State<TrainerScreen> {
-  final Random rng = Random();
-
-  final List<String> positions = ['UTG', 'HJ', 'CO', 'BTN', 'SB', 'BB'];
-  final List<String> ranks = ['2','3','4','5','6','7','8','9','T','J','Q','K','A'];
-  final List<String> suits = ['♠','♥','♦','♣'];
-
-  late List<String> deck;
-  String heroPosition = 'BTN';
-  List<String> hero = [];
-  List<String> board = [];
-  String street = 'PRE-FLOP';
-  String villainAction = '';
-  String feedback = 'Choose the best action.';
-  int score = 0;
-  int decisions = 0;
-  int pot = 2;
-  bool handOver = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _newHand();
-  }
-
-  void _makeDeck() {
-    deck = [
-      for (final r in ranks)
-        for (final s in suits) '$r$s'
-    ]..shuffle(rng);
-  }
-
-  void _newHand() {
-    _makeDeck();
-    heroPosition = positions[rng.nextInt(positions.length)];
-    hero = [deck.removeLast(), deck.removeLast()];
-    board = [];
-    street = 'PRE-FLOP';
-    pot = 2;
-    villainAction = heroPosition == 'UTG'
-        ? 'Action folds to you.'
-        : ['Action folds to you.', 'One player opens to 2.5 BB.', 'One limper enters the pot.'][rng.nextInt(3)];
-    feedback = 'Choose the best action.';
-    handOver = false;
-    setState(() {});
-  }
-
-  int _preflopStrength() {
-    int value(String card) => ranks.indexOf(card[0]) + 2;
-    final a = value(hero[0]);
-    final b = value(hero[1]);
-    var score = 0;
-    if (a == b) score += 6 + max(0, a - 8);
-    score += max(a, b) >= 14 ? 4 : max(a, b) >= 13 ? 3 : max(a, b) >= 12 ? 2 : 0;
-    if (hero[0][1] == hero[1][1]) score += 2;
-    if ((a - b).abs() <= 2) score += 1;
-    return score;
-  }
-
-  String _bestAction() {
-    final s = _preflopStrength();
-    if (street == 'PRE-FLOP') {
-      if (s >= 8) return 'Raise';
-      if (s >= 5) return villainAction.contains('opens') ? 'Call' : 'Raise';
-      return 'Fold';
-    }
-    final pair = _hasPair();
-    if (pair && rng.nextDouble() < 0.65) return 'Raise';
-    if (s >= 5) return 'Call';
-    return rng.nextDouble() < 0.2 ? 'Raise' : 'Fold';
-  }
-
-  bool _hasPair() {
-    final all = [...hero, ...board];
-    final counts = <String, int>{};
-    for (final c in all) {
-      counts[c[0]] = (counts[c[0]] ?? 0) + 1;
-    }
-    return counts.values.any((v) => v >= 2);
-  }
-
-  void _choose(String action) {
-    if (handOver) return;
-    final best = _bestAction();
-    decisions++;
-    final correct = action == best;
-    if (correct) score++;
-
-    feedback = correct
-        ? 'Good decision. $best is the preferred action in this simplified training model.'
-        : 'Better line: $best. This spot is currently scored using a simplified range model.';
-
-    if (action == 'Fold' || street == 'RIVER') {
-      handOver = true;
-      setState(() {});
-      return;
-    }
-
-    _advanceStreet();
-  }
-
-  void _advanceStreet() {
-    if (street == 'PRE-FLOP') {
-      board.addAll([deck.removeLast(), deck.removeLast(), deck.removeLast()]);
-      street = 'FLOP';
-    } else if (street == 'FLOP') {
-      board.add(deck.removeLast());
-      street = 'TURN';
-    } else if (street == 'TURN') {
-      board.add(deck.removeLast());
-      street = 'RIVER';
-    }
-    pot += 2 + rng.nextInt(5);
-    villainAction = 'Opponent checks to you.';
-    setState(() {});
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final accuracy = decisions == 0 ? 0 : (score * 100 / decisions).round();
-
-    return Scaffold(
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                children: [
-                  const Text('POKER TRAINER', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
-                  const Spacer(),
-                  Text('$accuracy%', style: const TextStyle(fontWeight: FontWeight.w700)),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Text('Score $score  •  Decisions $decisions', style: TextStyle(color: Colors.white.withValues(alpha: .65))),
-              const SizedBox(height: 22),
-              Container(
-                padding: const EdgeInsets.all(22),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF172126),
-                  borderRadius: BorderRadius.circular(26),
-                ),
-                child: Column(
-                  children: [
-                    Row(
-                      children: [
-                        Text('6-max  •  100 BB  •  $heroPosition', style: const TextStyle(fontWeight: FontWeight.w700)),
-                        const Spacer(),
-                        Text('Pot $pot BB'),
-                      ],
-                    ),
-                    const SizedBox(height: 30),
-                    Text(street, style: TextStyle(color: Colors.white.withValues(alpha: .55), fontWeight: FontWeight.w700)),
-                    const SizedBox(height: 12),
-                    Text(
-                      board.isEmpty ? '•  •  •' : board.join('   '),
-                      style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800),
-                    ),
-                    const SizedBox(height: 30),
-                    const Text('YOUR HAND', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
-                    const SizedBox(height: 8),
-                    Text(hero.join('   '), style: const TextStyle(fontSize: 38, fontWeight: FontWeight.w800)),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 18),
-              Text(villainAction, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
-              const SizedBox(height: 12),
-              Text(feedback, style: TextStyle(fontSize: 15, height: 1.4, color: Colors.white.withValues(alpha: .75))),
-              const Spacer(),
-              if (!handOver)
-                Row(
-                  children: [
-                    Expanded(child: _ActionButton(label: 'FOLD', onTap: () => _choose('Fold'))),
-                    const SizedBox(width: 10),
-                    Expanded(child: _ActionButton(label: 'CALL', onTap: () => _choose('Call'))),
-                    const SizedBox(width: 10),
-                    Expanded(child: _ActionButton(label: 'RAISE', onTap: () => _choose('Raise'))),
-                  ],
-                )
-              else
-                FilledButton(
-                  onPressed: _newHand,
-                  style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(58)),
-                  child: const Text('NEXT HAND'),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ActionButton extends StatelessWidget {
-  final String label;
-  final VoidCallback onTap;
-  const _ActionButton({required this.label, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return FilledButton.tonal(
-      onPressed: onTap,
-      style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(58)),
-      child: Text(label, style: const TextStyle(fontWeight: FontWeight.w800)),
-    );
-  }
-}
+class Action extends StatelessWidget{final String label;final VoidCallback go;const Action({super.key,required this.label,required this.go});Widget build(BuildContext c)=>SizedBox(height:58,child:FilledButton(onPressed:go,style:FilledButton.styleFrom(backgroundColor:const Color(0xffd8ff45),foregroundColor:const Color(0xff171714),shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(3))),child:Text(label,style:const TextStyle(fontWeight:FontWeight.w900))));}
+class Cards extends StatelessWidget{final List<String>cards;final bool big;const Cards({super.key,required this.cards,this.big=false});Widget build(BuildContext c)=>Wrap(alignment:WrapAlignment.center,spacing:12,children:[for(final x in cards)card(x)]);Widget card(String x){if(x=='•')return const Text('•',style:TextStyle(color:Color(0xfff1efe7),fontSize:34));final s=x.substring(1),red=s=='♥'||s=='♦';return Container(width:big?80:60,height:big?105:82,padding:const EdgeInsets.all(8),decoration:BoxDecoration(color:const Color(0xfff1efe7),borderRadius:BorderRadius.circular(3)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(x[0],style:TextStyle(fontSize:big?30:24,fontWeight:FontWeight.w900,height:1)),const Spacer(),Align(alignment:Alignment.bottomRight,child:Text(s,style:TextStyle(fontSize:big?30:23,height:1,color:red?const Color(0xffe63b2e):const Color(0xff171714))))]));}}
